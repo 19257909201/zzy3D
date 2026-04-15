@@ -362,39 +362,79 @@ function MapBuildingLift({ model }: { model: SiteModelSummary }) {
   const cropTopPercent = -((mapPosition.y - safeHeight / 2) / safeHeight) * 100;
 
   return (
-    <div
-      className="pointer-events-none absolute z-[6] -translate-x-1/2 -translate-y-1/2"
-      style={{
-        left: `${mapPosition.x * 100}%`,
-        top: `${mapPosition.y * 100}%`,
-        width: `${safeWidth * 100}%`,
-        height: `${safeHeight * 100}%`,
-      }}
-      aria-hidden="true"
-    >
-      <div className="absolute inset-[-26%] rounded-[42%] bg-[radial-gradient(circle,_rgba(255,247,236,0.9)_0%,_rgba(255,247,236,0.46)_42%,_rgba(255,247,236,0)_82%)] blur-2xl" />
+    <>
       <div
-        className="absolute inset-0 translate-y-[-12%] scale-[1.1] drop-shadow-[0_14px_22px_rgba(58,36,18,0.26)]"
+        className="pointer-events-none absolute z-[6] -translate-x-1/2 -translate-y-1/2"
         style={{
-          WebkitMaskImage:
-            "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
-          maskImage:
-            "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
+          left: `${mapPosition.x * 100}%`,
+          top: `${mapPosition.y * 100}%`,
+          width: `${safeWidth * 100}%`,
+          height: `${safeHeight * 100}%`,
         }}
+        aria-hidden="true"
       >
+        <div className="map-building-lift-glow absolute inset-[-26%] rounded-[42%] bg-[radial-gradient(circle,_rgba(255,247,236,0.9)_0%,_rgba(255,247,236,0.46)_42%,_rgba(255,247,236,0)_82%)] blur-2xl" />
         <div
-          className="absolute bg-no-repeat"
+          className="map-building-lift-surface absolute inset-0 drop-shadow-[0_14px_22px_rgba(58,36,18,0.26)]"
           style={{
-            left: `${cropLeftPercent}%`,
-            top: `${cropTopPercent}%`,
-            width: `${cropWidthPercent}%`,
-            height: `${cropHeightPercent}%`,
-            backgroundImage: "url('/api/layout-image')",
-            backgroundSize: "100% 100%",
+            WebkitMaskImage:
+              "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
+            maskImage:
+              "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
           }}
-        />
+        >
+          <div
+            className="absolute bg-no-repeat"
+            style={{
+              left: `${cropLeftPercent}%`,
+              top: `${cropTopPercent}%`,
+              width: `${cropWidthPercent}%`,
+              height: `${cropHeightPercent}%`,
+              backgroundImage: "url('/api/layout-image')",
+              backgroundSize: "100% 100%",
+            }}
+          />
+        </div>
       </div>
-    </div>
+
+      <style jsx>{`
+        .map-building-lift-glow {
+          animation: map-building-lift-glow 980ms
+            cubic-bezier(0.18, 0.84, 0.22, 1) both;
+          will-change: opacity, transform;
+        }
+
+        .map-building-lift-surface {
+          animation: map-building-lift-surface 920ms
+            cubic-bezier(0.16, 0.82, 0.24, 1) both;
+          will-change: opacity, transform;
+        }
+
+        @keyframes map-building-lift-glow {
+          0% {
+            opacity: 0;
+            transform: scale(0.84);
+          }
+
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+
+        @keyframes map-building-lift-surface {
+          0% {
+            opacity: 0;
+            transform: translateY(-3%) scale(1.02);
+          }
+
+          100% {
+            opacity: 1;
+            transform: translateY(-12%) scale(1.1);
+          }
+        }
+      `}</style>
+    </>
   );
 }
 
@@ -456,21 +496,21 @@ function MapLabel({
         onPointerLeave={onPreviewClear}
         onFocus={() => onPreview(model.slug)}
         onBlur={onPreviewClear}
-        className={`group relative border-0 bg-transparent p-0 transition-transform duration-300 ease-out ${
+        className={`group relative border-0 bg-transparent p-0 transition-transform duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
           isPreviewed ? "-translate-y-2 scale-[1.025]" : ""
         }`}
         aria-label={`查看 ${model.label} 模型`}
         title={`查看 ${model.label}`}
       >
         <span
-          className={`pointer-events-none absolute left-1/2 top-1/2 -z-10 h-14 w-[calc(100%+2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl transition duration-300 ${
+          className={`pointer-events-none absolute left-1/2 top-1/2 -z-10 h-14 w-[calc(100%+2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "bg-[rgba(255,248,236,0.78)]"
               : "bg-white/0 group-hover:bg-[rgba(255,248,236,0.72)] group-focus-visible:bg-[rgba(255,248,236,0.72)]"
           }`}
         />
         <span
-          className={`pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-300 ${
+          className={`pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "scale-125 shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
               : "shadow-[0_0_0_1px_rgba(0,0,0,0.78),0_0_10px_rgba(255,255,255,0.62)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
@@ -478,7 +518,7 @@ function MapLabel({
           style={{ top: `calc(50% + ${LABEL_DOT_OFFSET}px)` }}
         />
         <span
-          className={`${mapLabelFont.className} relative block whitespace-nowrap text-[clamp(1.7rem,2vw,2.5rem)] leading-none tracking-[0.02em] transition duration-300 ${
+          className={`${mapLabelFont.className} relative block whitespace-nowrap text-[clamp(1.7rem,2vw,2.5rem)] leading-none tracking-[0.02em] transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "scale-[1.03] text-[#3a2010]"
               : "text-[#18110d] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
