@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Ma_Shan_Zheng } from "next/font/google";
 import {
   type CSSProperties,
+  type MutableRefObject,
   startTransition,
   useEffect,
   useRef,
@@ -77,6 +78,8 @@ const LABEL_DOT_OFFSET = 33;
 const MODEL_INTRO_ROTATION_DURATION_MS = 4500;
 const MODEL_CAMERA_DISTANCE_MULTIPLIER = 0.86;
 const INTERPRETATION_TYPE_INTERVAL_MS = 58;
+const NARRATION_AUDIO_DIRECTORY = "/audio";
+const NARRATION_AUDIO_EXTENSIONS = ["mp3", "m4a", "wav", "ogg"] as const;
 const INK_TRANSITION_INITIAL_HOLD_MS = 320;
 const INK_TRANSITION_COVER_MS = 720;
 const INK_TRANSITION_REVEAL_MS = 1160;
@@ -96,6 +99,11 @@ const PAPER_PANEL_CLASS =
   "border border-[#65513f]/10 bg-[linear-gradient(180deg,_rgba(255,255,252,0.95)_0%,_rgba(247,243,236,0.98)_100%)] shadow-[0_24px_56px_rgba(72,51,32,0.16)]";
 const PAPER_BUTTON_CLASS =
   "border border-[#4d3b2d]/10 bg-[linear-gradient(180deg,_rgba(255,255,253,0.96)_0%,_rgba(247,243,236,0.98)_100%)] text-[#2f2118] shadow-[0_14px_28px_rgba(73,52,34,0.12)]";
+
+type InterpretationAudioRefs = {
+  audioRef: MutableRefObject<HTMLAudioElement | null>;
+  audioSessionRef: MutableRefObject<number>;
+};
 
 function createMistTextureCanvas() {
   const canvas = document.createElement("canvas");
@@ -122,6 +130,102 @@ function createMistTextureCanvas() {
 
 function disposeMaterial(material: Material) {
   material.dispose();
+}
+
+function getNarrationAudioCandidates(slug: string) {
+  return NARRATION_AUDIO_EXTENSIONS.map(
+    (extension) => `${NARRATION_AUDIO_DIRECTORY}/${slug}.${extension}`
+  );
+}
+
+async function findNarrationAudioSource(slug: string, signal: AbortSignal) {
+  for (const candidate of getNarrationAudioCandidates(slug)) {
+    try {
+      const response = await fetch(candidate, {
+        method: "HEAD",
+        cache: "no-store",
+        signal,
+      });
+
+      if (response.ok) {
+        return candidate;
+      }
+    } catch {
+      if (signal.aborted) {
+        return null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function stopNarrationAudio(
+  refs: InterpretationAudioRefs,
+  resetToStart: boolean
+) {
+  refs.audioSessionRef.current += 1;
+  const audio = refs.audioRef.current;
+
+  if (!audio) {
+    return;
+  }
+
+  audio.pause();
+  audio.onended = null;
+  audio.onerror = null;
+
+  if (resetToStart) {
+    try {
+      audio.currentTime = 0;
+    } catch {}
+  }
+}
+
+function renderInterpretationContent(
+  text: string,
+  showCursor: boolean
+): ReactNode[] {
+  const lines = text.split("\n");
+
+  return lines.map((line, index) => {
+    const headingMatch = line.match(/^(【[^】]+】)\s*(.*)$/);
+    const isLastLine = index === lines.length - 1;
+    const cursor = showCursor && isLastLine ? (
+      <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#8c7156] align-[-2px]" />
+    ) : null;
+
+    if (line.trim() === "") {
+      return (
+        <div
+          key={`line-${index}`}
+          aria-hidden="true"
+          className="h-3 sm:h-3.5"
+        >
+          {cursor}
+        </div>
+      );
+    }
+
+    return (
+      <p
+        key={`line-${index}`}
+        className={`${index === 0 ? "" : "mt-2"} text-[14px] leading-8 text-[#5e4b3a] sm:text-[15px]`}
+      >
+        {headingMatch ? (
+          <>
+            <strong className="font-semibold text-[#2f2118]">
+              {headingMatch[1]}
+            </strong>
+            {headingMatch[2] ? ` ${headingMatch[2]}` : null}
+          </>
+        ) : (
+          line
+        )}
+        {cursor}
+      </p>
+    );
+  });
 }
 
 function disposeObject(object: Object3D) {
@@ -451,17 +555,76 @@ function SingleModelStage({
   const [isInterpretationReady, setIsInterpretationReady] = useState(false);
   const [isInterpretationOpen, setIsInterpretationOpen] = useState(true);
   const [typedInterpretation, setTypedInterpretation] = useState("");
+  const [isNarrationEnabled, setIsNarrationEnabled] = useState(true);
+  const [isNarrationAvailable, setIsNarrationAvailable] = useState<
+    boolean | null
+  >(null);
+  const [narrationAudioSrc, setNarrationAudioSrc] = useState<string | null>(
+    null
+  );
+  const narrationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationAudioSessionRef = useRef(0);
 
   useEffect(() => {
+    stopNarrationAudio(
+      {
+        audioRef: narrationAudioRef,
+        audioSessionRef: narrationAudioSessionRef,
+      },
+      true
+    );
+    setIsNarrationAvailable(null);
+    setNarrationAudioSrc(null);
     setIsDrawerOpen(false);
     setIsInterpretationReady(false);
     setIsInterpretationOpen(true);
     setTypedInterpretation("");
   }, [model.slug]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    void findNarrationAudioSource(model.slug, controller.signal).then((src) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setNarrationAudioSrc(src);
+      setIsNarrationAvailable(Boolean(src));
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [model.slug]);
+
   const handleDrawerSelect = (slug: string) => {
     setIsDrawerOpen(false);
     onSelect(slug);
+  };
+
+  const handleNarrationToggle = () => {
+    if (!narrationAudioSrc) {
+      return;
+    }
+
+    if (isNarrationEnabled) {
+      setIsNarrationEnabled(false);
+      return;
+    }
+
+    stopNarrationAudio(
+      {
+        audioRef: narrationAudioRef,
+        audioSessionRef: narrationAudioSessionRef,
+      },
+      true
+    );
+    setIsNarrationEnabled(true);
   };
 
   useEffect(() => {
@@ -497,6 +660,84 @@ function SingleModelStage({
     isInterpretationReady,
     interpretationText,
     typedInterpretation,
+  ]);
+
+  useEffect(() => {
+    if (isInterpretationOpen && isNarrationEnabled) {
+      return;
+    }
+
+    stopNarrationAudio(
+      {
+        audioRef: narrationAudioRef,
+        audioSessionRef: narrationAudioSessionRef,
+      },
+      true
+    );
+  }, [isInterpretationOpen, isNarrationEnabled]);
+
+  useEffect(() => {
+    if (
+      !isNarrationEnabled ||
+      !isInterpretationReady ||
+      !isInterpretationOpen ||
+      !narrationAudioSrc
+    ) {
+      return;
+    }
+
+    const audio = narrationAudioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    const sessionId = narrationAudioSessionRef.current + 1;
+
+    narrationAudioSessionRef.current = sessionId;
+    audio.pause();
+    audio.preload = "auto";
+    audio.volume = 1;
+
+    try {
+      audio.currentTime = 0;
+    } catch {}
+
+    audio.onended = () => {
+      if (narrationAudioSessionRef.current !== sessionId) {
+        return;
+      }
+    };
+
+    audio.onerror = () => {
+      if (narrationAudioSessionRef.current !== sessionId) {
+        return;
+      }
+
+      setNarrationAudioSrc(null);
+      setIsNarrationAvailable(false);
+    };
+
+    void audio.play().catch(() => {});
+
+    return () => {
+      if (narrationAudioSessionRef.current !== sessionId) {
+        return;
+      }
+
+      audio.pause();
+      audio.onended = null;
+      audio.onerror = null;
+
+      try {
+        audio.currentTime = 0;
+      } catch {}
+    };
+  }, [
+    isInterpretationOpen,
+    isInterpretationReady,
+    isNarrationEnabled,
+    narrationAudioSrc,
   ]);
 
   useEffect(() => {
@@ -823,7 +1064,7 @@ function SingleModelStage({
         type="button"
         onClick={onBack}
         aria-label="返回总览"
-        className={`${PAPER_BUTTON_CLASS} absolute bottom-4 left-4 z-30 flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:bottom-6 sm:left-6 sm:h-12 sm:w-12`}
+        className={`${PAPER_BUTTON_CLASS} absolute bottom-2 left-4 z-30 flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:bottom-4 sm:left-6 sm:h-12 sm:w-12`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -887,21 +1128,72 @@ function SingleModelStage({
                 className={`${PAPER_PANEL_CLASS} relative w-full overflow-hidden rounded-[1.5rem] px-4 py-4 backdrop-blur-xl sm:px-5 sm:py-5`}
               >
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,_rgba(255,255,255,0.7)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
-                <div className="relative min-w-0">
+                <div className="relative flex min-w-0 items-start justify-between gap-3">
                   <h3
                     className={`${mapLabelFont.className} text-[1.52rem] leading-none tracking-[0.03em] text-[#2f2118]`}
                   >
                     关于建筑
                   </h3>
+                  <button
+                    type="button"
+                    onClick={handleNarrationToggle}
+                    disabled={!narrationAudioSrc}
+                    aria-pressed={narrationAudioSrc ? isNarrationEnabled : false}
+                    aria-label={
+                      narrationAudioSrc
+                        ? isNarrationEnabled
+                          ? "关闭音频"
+                          : "开启音频"
+                        : isNarrationAvailable === false
+                          ? "暂无解说音频"
+                          : "正在检查音频"
+                    }
+                    className={`${PAPER_BUTTON_CLASS} flex h-9 w-9 shrink-0 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] ${
+                      narrationAudioSrc
+                        ? ""
+                        : "cursor-not-allowed opacity-45 hover:border-[#4d3b2d]/10 hover:bg-[linear-gradient(180deg,_rgba(255,255,253,0.96)_0%,_rgba(247,243,236,0.98)_100%)]"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      className="h-[15px] w-[15px] text-[#5a4839]"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M5 9v6h4l5 4V5l-5 4H5z" />
+                      {narrationAudioSrc && isNarrationEnabled ? (
+                        <>
+                          <path d="M18 9.5a4 4 0 0 1 0 5" />
+                          <path d="M20.5 7a7.5 7.5 0 0 1 0 10" />
+                        </>
+                      ) : (
+                        <path d="M4 4l16 16" />
+                      )}
+                    </svg>
+                  </button>
                 </div>
 
+                {narrationAudioSrc ? (
+                  <audio
+                    ref={narrationAudioRef}
+                    src={narrationAudioSrc}
+                    preload="metadata"
+                    className="hidden"
+                    aria-hidden="true"
+                  />
+                ) : null}
+
                 <div className="relative mt-4 max-h-[min(42vh,24rem)] overflow-y-auto pr-1 [scrollbar-gutter:stable] sm:max-h-[calc(100vh-22rem)]">
-                  <p className="whitespace-pre-line text-[14px] leading-8 text-[#5e4b3a] sm:text-[15px]">
-                    {typedInterpretation}
-                    {typedInterpretation.length < interpretationText.length ? (
-                      <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#8c7156] align-[-2px]" />
-                    ) : null}
-                  </p>
+                  <div>
+                    {renderInterpretationContent(
+                      typedInterpretation,
+                      typedInterpretation.length < interpretationText.length
+                    )}
+                  </div>
                 </div>
               </aside>
             </div>
@@ -970,7 +1262,7 @@ export default function ModelViewer({ models }: ModelViewerProps) {
     useState<InkTransitionPhase>("covering");
   const [transitionKind, setTransitionKind] =
     useState<InkTransitionKind>("initial");
-  const [transitionLabel, setTransitionLabel] = useState("一园如画·三维见江南");
+  const [transitionLabel, setTransitionLabel] = useState("一园入画·掌上云游");
   const pendingSlugRef = useRef<string | null>(null);
 
   useEffect(() => {

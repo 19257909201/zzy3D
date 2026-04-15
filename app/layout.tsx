@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "园林建筑模型导览",
-  description: "基于位置总览与单体 GLB 切换的园林建筑展示。",
+  title: "一园入画·掌上云游",
+  description: "以3D模型为基础 浏览拙政园风光",
 };
 
 export default function RootLayout({
