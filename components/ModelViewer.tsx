@@ -45,12 +45,16 @@ type SingleModelStageProps = {
 };
 
 type OverviewMapFrameProps = {
+  highlightedModel?: SiteModelSummary | null;
   children?: ReactNode;
 };
 
 type MapLabelProps = {
   model: SiteModelSummary;
   onSelect: (slug: string) => void;
+  onPreview: (slug: string) => void;
+  onPreviewClear: () => void;
+  isPreviewed: boolean;
 };
 
 type DirectoryDrawerProps = {
@@ -59,6 +63,8 @@ type DirectoryDrawerProps = {
   onToggle: () => void;
   onClose: () => void;
   onSelect: (slug: string) => void;
+  onPreview: (slug: string) => void;
+  onPreviewClear: () => void;
 };
 
 type InkTransitionPhase = "covering" | "revealing" | "hidden";
@@ -341,7 +347,61 @@ function InkWashOverlay({
   );
 }
 
-function OverviewMapFrame({ children }: OverviewMapFrameProps) {
+function MapBuildingLift({ model }: { model: SiteModelSummary }) {
+  const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
+  const mapSize = model.mapSize;
+  const safeWidth = Math.max(mapSize.width * 1.68, mapSize.width + 0.04, 0.108);
+  const safeHeight = Math.max(
+    mapSize.height * 1.72,
+    mapSize.height + 0.036,
+    0.092
+  );
+  const cropWidthPercent = 100 / safeWidth;
+  const cropHeightPercent = 100 / safeHeight;
+  const cropLeftPercent = -((mapPosition.x - safeWidth / 2) / safeWidth) * 100;
+  const cropTopPercent = -((mapPosition.y - safeHeight / 2) / safeHeight) * 100;
+
+  return (
+    <div
+      className="pointer-events-none absolute z-[6] -translate-x-1/2 -translate-y-1/2"
+      style={{
+        left: `${mapPosition.x * 100}%`,
+        top: `${mapPosition.y * 100}%`,
+        width: `${safeWidth * 100}%`,
+        height: `${safeHeight * 100}%`,
+      }}
+      aria-hidden="true"
+    >
+      <div className="absolute inset-[-26%] rounded-[42%] bg-[radial-gradient(circle,_rgba(255,247,236,0.9)_0%,_rgba(255,247,236,0.46)_42%,_rgba(255,247,236,0)_82%)] blur-2xl" />
+      <div
+        className="absolute inset-0 translate-y-[-12%] scale-[1.1] drop-shadow-[0_14px_22px_rgba(58,36,18,0.26)]"
+        style={{
+          WebkitMaskImage:
+            "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
+          maskImage:
+            "radial-gradient(ellipse at center, rgba(0,0,0,1) 28%, rgba(0,0,0,0.96) 50%, rgba(0,0,0,0.24) 82%, transparent 95%)",
+        }}
+      >
+        <div
+          className="absolute bg-no-repeat"
+          style={{
+            left: `${cropLeftPercent}%`,
+            top: `${cropTopPercent}%`,
+            width: `${cropWidthPercent}%`,
+            height: `${cropHeightPercent}%`,
+            backgroundImage: "url('/api/layout-image')",
+            backgroundSize: "100% 100%",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function OverviewMapFrame({
+  highlightedModel,
+  children,
+}: OverviewMapFrameProps) {
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#ece2d5]">
       <div
@@ -363,6 +423,7 @@ function OverviewMapFrame({ children }: OverviewMapFrameProps) {
             className="select-none object-cover"
           />
 
+          {highlightedModel ? <MapBuildingLift model={highlightedModel} /> : null}
           {children ? <div className="absolute inset-0 z-10">{children}</div> : null}
         </div>
       </div>
@@ -370,7 +431,13 @@ function OverviewMapFrame({ children }: OverviewMapFrameProps) {
   );
 }
 
-function MapLabel({ model, onSelect }: MapLabelProps) {
+function MapLabel({
+  model,
+  onSelect,
+  onPreview,
+  onPreviewClear,
+  isPreviewed,
+}: MapLabelProps) {
   const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
 
   return (
@@ -384,17 +451,38 @@ function MapLabel({ model, onSelect }: MapLabelProps) {
       <button
         type="button"
         onClick={() => onSelect(model.slug)}
-        className="group relative border-0 bg-transparent p-0"
+        onPointerEnter={() => onPreview(model.slug)}
+        onPointerDown={() => onPreview(model.slug)}
+        onPointerLeave={onPreviewClear}
+        onFocus={() => onPreview(model.slug)}
+        onBlur={onPreviewClear}
+        className={`group relative border-0 bg-transparent p-0 transition-transform duration-300 ease-out ${
+          isPreviewed ? "-translate-y-2 scale-[1.025]" : ""
+        }`}
         aria-label={`查看 ${model.label} 模型`}
         title={`查看 ${model.label}`}
       >
-        <span className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-14 w-[calc(100%+2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/0 blur-2xl transition duration-200 group-hover:bg-[rgba(255,248,236,0.72)] group-focus-visible:bg-[rgba(255,248,236,0.72)]" />
         <span
-          className="pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.78),0_0_10px_rgba(255,255,255,0.62)] transition duration-200 group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
+          className={`pointer-events-none absolute left-1/2 top-1/2 -z-10 h-14 w-[calc(100%+2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl transition duration-300 ${
+            isPreviewed
+              ? "bg-[rgba(255,248,236,0.78)]"
+              : "bg-white/0 group-hover:bg-[rgba(255,248,236,0.72)] group-focus-visible:bg-[rgba(255,248,236,0.72)]"
+          }`}
+        />
+        <span
+          className={`pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-300 ${
+            isPreviewed
+              ? "scale-125 shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
+              : "shadow-[0_0_0_1px_rgba(0,0,0,0.78),0_0_10px_rgba(255,255,255,0.62)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
+          }`}
           style={{ top: `calc(50% + ${LABEL_DOT_OFFSET}px)` }}
         />
         <span
-          className={`${mapLabelFont.className} relative block whitespace-nowrap text-[clamp(1.7rem,2vw,2.5rem)] leading-none tracking-[0.02em] text-[#18110d] transition duration-200 group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]`}
+          className={`${mapLabelFont.className} relative block whitespace-nowrap text-[clamp(1.7rem,2vw,2.5rem)] leading-none tracking-[0.02em] transition duration-300 ${
+            isPreviewed
+              ? "scale-[1.03] text-[#3a2010]"
+              : "text-[#18110d] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
+          }`}
           style={MAP_LABEL_TEXT_STYLE}
         >
           {model.label}
@@ -410,6 +498,8 @@ function DirectoryDrawer({
   onToggle,
   onClose,
   onSelect,
+  onPreview,
+  onPreviewClear,
 }: DirectoryDrawerProps) {
   return (
     <>
@@ -477,6 +567,11 @@ function DirectoryDrawer({
                     key={model.slug}
                     type="button"
                     onClick={() => onSelect(model.slug)}
+                    onPointerEnter={() => onPreview(model.slug)}
+                    onPointerDown={() => onPreview(model.slug)}
+                    onPointerLeave={onPreviewClear}
+                    onFocus={() => onPreview(model.slug)}
+                    onBlur={onPreviewClear}
                     className="group flex w-full items-start gap-3 border-t border-[#8f7150]/8 px-4 py-3 text-left transition first:border-t-0 hover:bg-[rgba(250,245,238,0.92)]"
                   >
                     <span className="mt-1 shrink-0 text-[10px] leading-none tracking-[0.28em] text-[#a18364]">
@@ -514,19 +609,51 @@ function DirectoryDrawer({
 
 function OverviewStage({ models, onSelect }: OverviewStageProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [previewSlug, setPreviewSlug] = useState<string | null>(null);
 
   const handleSelect = (slug: string) => {
     setIsDrawerOpen(false);
     onSelect(slug);
   };
+  const previewModel =
+    previewSlug === null
+      ? null
+      : models.find((model) => model.slug === previewSlug) ?? null;
 
   return (
     <section className="relative h-screen w-full overflow-hidden bg-[#ece2d5]">
-      <OverviewMapFrame>
+      <OverviewMapFrame highlightedModel={previewModel}>
         {models.map((model) => (
-          <MapLabel key={model.slug} model={model} onSelect={handleSelect} />
+          <MapLabel
+            key={model.slug}
+            model={model}
+            onSelect={handleSelect}
+            onPreview={setPreviewSlug}
+            onPreviewClear={() => setPreviewSlug(null)}
+            isPreviewed={previewSlug === model.slug}
+          />
         ))}
       </OverviewMapFrame>
+
+      <div className="absolute left-4 top-4 z-20 w-[min(22.5rem,calc(100vw-6.5rem))] sm:left-6 sm:top-6 sm:w-[22.5rem]">
+        <div
+          className={`${PAPER_PANEL_CLASS} pointer-events-none rounded-[1.5rem] pl-4 pr-6 py-[1.25rem] backdrop-blur-xl sm:pl-[1.15rem] sm:pr-[1.65rem] sm:py-[1.3rem]`}
+        >
+          <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#7b6450]/72">
+            园林总览
+          </p>
+          <h2
+            className={`${mapLabelFont.className} mt-3 flex h-[2.35rem] items-center whitespace-nowrap leading-none tracking-[0.02em] text-[#2f2118] sm:h-[2.55rem]`}
+          >
+            <span className="inline-block origin-left scale-[1.18] text-[1.66rem] sm:text-[1.82rem]">
+              一园入画·掌上云游
+            </span>
+          </h2>
+          <p className="mt-3 text-sm leading-[1.75] text-[#5e4b3a]">
+            咫尺乾坤，一步一江湖
+          </p>
+        </div>
+      </div>
 
       <DirectoryDrawer
         models={models}
@@ -534,7 +661,29 @@ function OverviewStage({ models, onSelect }: OverviewStageProps) {
         onToggle={() => setIsDrawerOpen((value) => !value)}
         onClose={() => setIsDrawerOpen(false)}
         onSelect={handleSelect}
+        onPreview={setPreviewSlug}
+        onPreviewClear={() => setPreviewSlug(null)}
       />
+
+      {previewModel ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4 sm:bottom-6">
+          <div className="max-w-xl rounded-[1.35rem] border border-[#65513f]/10 bg-[linear-gradient(180deg,_rgba(255,255,252,0.94)_0%,_rgba(247,243,236,0.97)_100%)] px-5 py-3 text-center text-sm text-[#5e4b3a] shadow-[0_18px_36px_rgba(72,51,32,0.14)] backdrop-blur-md">
+            <div className="flex justify-center text-[#2f2118]">
+              <p
+                className={`${mapLabelFont.className} text-[1.28rem] leading-none tracking-[0.03em]`}
+              >
+                {previewModel.overviewTag}
+              </p>
+            </div>
+            <p className="mt-2 text-[13px] leading-6 text-[#5e4b3a] sm:text-[14px]">
+              {previewModel.overviewCopy}
+            </p>
+            <p className="mt-1.5 text-[12px] leading-5 text-[#8c7156]">
+              {previewModel.overviewHint}
+            </p>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

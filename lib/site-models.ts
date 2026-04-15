@@ -18,6 +18,10 @@ type SiteModelRecord = {
   summary: string;
   verse: string;
   interpretation: string;
+  overviewMeta: string;
+  overviewTag: string;
+  overviewCopy: string;
+  overviewHint: string;
   mapPosition: MapPosition;
   mapSize: MapSize;
 };
@@ -42,6 +46,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "一楼收远岫，半窗贮春云。",
     interpretation:
       "【形制】 临水重檐的观景楼阁\n下层稳固亲水，上层轻盈远眺，是园内视野最开阔的制高点。\n\n【技法】 巧借园外北寺塔影\n以窗框为画框，将园外数里之外的塔影“借”入园中，拓展视觉边界。\n\n【意境】 心远地自偏的超脱\n取意陶渊明诗句，表达身居闹市而心在山林的隐逸心境。",
+    overviewMeta: "高处",
+    overviewTag: "【高楼·借景】",
+    overviewCopy: "悠然见南山，在此俯瞰吴中秀色。",
+    overviewHint: "登高望远，视觉焦点的制高点。",
     mapPosition: { x: 0.478, y: 0.333 },
     mapSize: { width: 0.068, height: 0.06 },
   },
@@ -52,6 +60,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "雪意浮疏影，香风过小亭。",
     interpretation:
       "【形制】 坐落于山岛之上的方亭\n周围林木葱郁，环境清幽，是岛上视线的焦点。\n\n【技法】 植梅为景，点明冬景主题\n亭周遍植白梅，通过植物配置点明四季景观，冬日雪后意境极佳。\n\n【意境】 高洁孤傲的文人品格\n“遥知不是雪，为有暗香来”，象征文人高洁品格的精神地标。",
+    overviewMeta: "岛上",
+    overviewTag: "【冬景·梅影】",
+    overviewCopy: "遥知不是雪，为有暗香来。",
+    overviewHint: "冬景借春景，梅花盛开的精神地标。",
     mapPosition: { x: 0.6068, y: 0.3984 },
     mapSize: { width: 0.09, height: 0.06 },
   },
@@ -62,6 +74,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "四面荷风起，波心一亭轻。",
     interpretation:
       "【形制】 立于水中央的六角亭\n四面无遮无拦，造型轻盈灵动，仿佛漂浮于水面之上。\n\n【技法】 汇聚荷香风语的嗅觉设计\n作为全园嗅觉中心，利用敞开结构将夏日荷风与清香汇聚于此。\n\n【意境】 人与自然的亲密对话\n体现了“纳千顷之汪洋”的思想，是感受四季流转的最佳媒介。",
+    overviewMeta: "水中",
+    overviewTag: "【夏景·听风】",
+    overviewCopy: "四壁荷花三面柳，半潭秋水一房山。",
+    overviewHint: "全园嗅觉中心，夏日赏荷首选。",
     mapPosition: { x: 0.5423, y: 0.5004 },
     mapSize: { width: 0.072, height: 0.042 },
   },
@@ -72,6 +88,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "水国藏芳渚，轻烟抱晚汀。",
     interpretation:
       "【形制】 集亭台楼阁于一体的舫\n浓缩船头、船舱、船楼于一身，造型精致，宛如一艘停泊在岸的官船。\n\n【技法】 旱地行舟，虚实相生\n在陆地上造舟，通过高低错落的空间组合，在有限空间内创造无限层次。\n\n【意境】 寄托泛舟五湖的理想\n象征园主“退隐江湖”的夙愿，是寄情山水、独善其身的精神避难所。",
+    overviewMeta: "旱地行舟",
+    overviewTag: "【画舫·不系之舟】",
+    overviewCopy: "载酒江湖梦未休，此心安处是吾乡。",
+    overviewHint: "形似官船，寄托文人隐逸之志。",
     mapPosition: { x: 0.4898, y: 0.6266 },
     mapSize: { width: 0.052, height: 0.04 },
   },
@@ -82,6 +102,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "一痕飞虹落，倒影卧清波。",
     interpretation:
       "【形制】 江南园林罕见的廊桥\n朱红栏杆与水面倒影相映，形态优美如长虹卧波，连接两岸景色。\n\n【技法】 以桥为廊，隔景分水面\n既是通道又是“界墙”，通过“隔景”手法让水面产生深远的层次感。\n\n【意境】 宛若惊鸿的动态美学\n串联不同景观空间的点睛之笔，光影变幻间尽显灵动之美。",
+    overviewMeta: "桥梁",
+    overviewTag: "【廊桥·飞虹】",
+    overviewCopy: "朱栏倒影，宛若惊鸿，划分水天一色。",
+    overviewHint: "连接东西，光影最美的拍照点。",
     mapPosition: { x: 0.5515, y: 0.7352 },
     mapSize: { width: 0.05, height: 0.036 },
   },
@@ -92,6 +116,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "远香来水际，清气满闲堂。",
     interpretation:
       "【形制】 明代四面厅的典范之作\n全园体量最大的主体建筑，四面通透的落地长窗，展现了明代建筑宏阔疏朗的气质。\n\n【技法】 借景为画，水镜映苍穹\n建筑不设围墙，以周围水池为镜面，将四周的山岛、花木、天空尽数收纳为动态的立体画卷。\n\n【意境】 寄托高洁的文人理想\n名取《爱莲说》，不仅是赏荷中心，更是园主寄托“出淤泥而不染”的高洁文人风骨。",
+    overviewMeta: "核心C位",
+    overviewTag: "【中宫·主殿】",
+    overviewCopy: "四面通透纳千顷水，荷风送香远益清。",
+    overviewHint: "全园视野最佳处，建议在此驻足。",
     mapPosition: { x: 0.6624, y: 0.6261 },
     mapSize: { width: 0.064, height: 0.042 },
   },
@@ -102,6 +130,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "玉兰开静院，月白满前阶。",
     interpretation:
       "【形制】 独立封闭的庭院式书斋\n高大轩敞的厅堂与精致院落结合，环境幽静，私密性极强。\n\n【技法】 以墙为纸，藤草作画\n院内植玉兰桂花，南墙高耸如宣纸，藤草攀爬营造创作意境。\n\n【意境】 文徵明挥毫的精神空间\n体现文人追求精神富足与艺术创造的雅致生活态度。",
+    overviewMeta: "庭院",
+    overviewTag: "【书斋·笔花】",
+    overviewCopy: "梦笔生花处，文徵明曾在此挥毫。",
+    overviewHint: "静谧私密，感受文人墨客的灵感空间。",
     mapPosition: { x: 0.4058, y: 0.7141 },
     mapSize: { width: 0.064, height: 0.042 },
   },
@@ -112,6 +144,10 @@ const SITE_MODEL_CATALOG: readonly SiteModelRecord[] = [
     verse: "窗含千树影，馆纳一庭风。",
     interpretation:
       "【形制】 四面通透玻璃窗的轩馆\n采用清代玻璃工艺，将庭院景色毫无保留地引入室内，明亮通透。\n\n【技法】 框景为画，竹石入窗棂\n以窗框为画框，将竹石、芭蕉等景致尽收眼底，宛如立体画卷。\n\n【意境】 一片澄澈的空明心境\n与建筑通透特质相呼应，象征主人远离尘俗、心如止水的境界。",
+    overviewMeta: "竹石",
+    overviewTag: "【轩馆·框景】",
+    overviewCopy: "玉壶冰心，借竹石为画，虚实相生。",
+    overviewHint: "透过窗户看世界，处处皆是画。",
     mapPosition: { x: 0.807, y: 0.7078 },
     mapSize: { width: 0.056, height: 0.05 },
   },
@@ -174,6 +210,10 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
     summary: "已发现模型文件，但尚未配置园区里的精确位置。",
     verse: "尚待题咏，留与后来人。",
     interpretation: "此处模型尚未补入对应解说。",
+    overviewMeta: "",
+    overviewTag: "【待补】",
+    overviewCopy: "此处模型尚未补入导览文案。",
+    overviewHint: "轻触可进入模型页面查看。",
     mapPosition: toFallbackPosition(index, unknownSlugs.length),
     mapSize: DEFAULT_MAP_SIZE,
     fileName: toFileName(slug),
@@ -205,6 +245,10 @@ export async function getSiteModelAsset(
     summary: record?.summary ?? "根据文件名识别出的单体模型。",
     verse: record?.verse ?? "尚待题咏，留与后来人。",
     interpretation: record?.interpretation ?? "此处模型尚未补入对应解说。",
+    overviewMeta: record?.overviewMeta ?? "",
+    overviewTag: record?.overviewTag ?? "【待补】",
+    overviewCopy: record?.overviewCopy ?? "此处模型尚未补入导览文案。",
+    overviewHint: record?.overviewHint ?? "轻触可进入模型页面查看。",
     mapPosition: record?.mapPosition ?? { x: 0.5, y: 0.93 },
     mapSize: record?.mapSize ?? DEFAULT_MAP_SIZE,
     fileName: toFileName(slug),
