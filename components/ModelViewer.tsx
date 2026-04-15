@@ -63,8 +63,8 @@ type DirectoryDrawerProps = {
   onToggle: () => void;
   onClose: () => void;
   onSelect: (slug: string) => void;
-  onPreview: (slug: string) => void;
-  onPreviewClear: () => void;
+  onPreview?: (slug: string) => void;
+  onPreviewClear?: () => void;
 };
 
 type InkTransitionPhase = "covering" | "revealing" | "hidden";
@@ -498,8 +498,8 @@ function DirectoryDrawer({
   onToggle,
   onClose,
   onSelect,
-  onPreview,
-  onPreviewClear,
+  onPreview = () => {},
+  onPreviewClear = () => {},
 }: DirectoryDrawerProps) {
   return (
     <>
