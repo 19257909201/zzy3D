@@ -12,7 +12,9 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const PACKAGE_JSON = JSON.parse(
   fs.readFileSync(path.join(PROJECT_ROOT, "package.json"), "utf8")
 );
+const ARCHIVE_MODE = process.platform === "darwin" ? "sea-assets" : "footer";
 const SENTINEL_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
+const SEA_MANIFEST_ASSET_KEY = "__web3d__/manifest.json";
 const FOOTER_MAGIC = "WEB3DSEA_ARCHIVE_V1";
 const FOOTER_MAGIC_BUFFER = Buffer.from(FOOTER_MAGIC, "utf8");
 const FOOTER_SIZE = FOOTER_MAGIC_BUFFER.length + 8;
@@ -62,10 +64,16 @@ function main() {
   const runtimeFiles = collectRuntimeFiles();
   const archiveManifest = createArchiveManifest(runtimeFiles);
   const bootstrapPath = path.join(seaWorkDir, "bootstrap.cjs");
+  const manifestPath = path.join(seaWorkDir, "bundle-manifest.json");
   const seaConfigPath = path.join(seaWorkDir, "sea-config.json");
   const seaBlobPath = path.join(seaWorkDir, "sea-prep.blob");
 
   fs.writeFileSync(bootstrapPath, createBootstrapSource(), "utf8");
+  fs.writeFileSync(
+    manifestPath,
+    JSON.stringify(archiveManifest, null, 2) + "\n",
+    "utf8"
+  );
   fs.writeFileSync(
     seaConfigPath,
     JSON.stringify(
@@ -75,6 +83,9 @@ function main() {
         disableExperimentalSEAWarning: true,
         useSnapshot: false,
         useCodeCache: false,
+        ...(ARCHIVE_MODE === "sea-assets"
+          ? { assets: buildSeaAssets(runtimeFiles, manifestPath) }
+          : {}),
       },
       null,
       2
@@ -107,7 +118,10 @@ function main() {
   }
 
   run(process.execPath, postjectArgs);
-  appendRuntimeArchive(outputBinary, runtimeFiles, archiveManifest);
+
+  if (ARCHIVE_MODE === "footer") {
+    appendRuntimeArchive(outputBinary, runtimeFiles, archiveManifest);
+  }
 
   if (process.platform === "darwin") {
     run("codesign", ["--sign", "-", outputBinary]);
@@ -158,6 +172,7 @@ function addDirectoryToRuntimeFiles(
       : relativeFromRoot;
 
     filesByPath.set(relativePath, {
+      assetKey: toAssetKey(relativePath),
       absolutePath,
       relativePath,
     });
@@ -209,6 +224,7 @@ function createArchiveManifest(runtimeFiles) {
     bundleId: createHash("sha256").update(buildSeed).digest("hex").slice(0, 16),
     payloadSize: 0,
     files: runtimeFiles.map((file) => ({
+      assetKey: file.assetKey,
       path: file.relativePath,
       offset: 0,
       size: 0,
@@ -265,6 +281,93 @@ function appendRuntimeArchive(binaryPath, runtimeFiles, archiveManifest) {
 }
 
 function createBootstrapSource() {
+  if (ARCHIVE_MODE === "sea-assets") {
+    return `"use strict";
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const sea = require("node:sea");
+const { createRequire } = require("node:module");
+
+const MANIFEST_ASSET_KEY = ${JSON.stringify(SEA_MANIFEST_ASSET_KEY)};
+const manifest = JSON.parse(sea.getAsset(MANIFEST_ASSET_KEY, "utf8"));
+const extractRoot = path.join(
+  os.tmpdir(),
+  \`\${manifest.productName}-sea-\${manifest.bundleId}-\${manifest.targetId}\`
+);
+const readyFile = path.join(extractRoot, ".sea-ready.json");
+const appRoot = ensureExtracted();
+const serverEntry = path.join(appRoot, "server.js");
+
+if (!fs.existsSync(serverEntry)) {
+  console.error("Unable to locate extracted Next.js server at", serverEntry);
+  process.exit(1);
+}
+
+process.chdir(appRoot);
+process.env.NODE_ENV = process.env.NODE_ENV || "production";
+process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
+process.env.PORT = process.env.PORT || "3000";
+process.env.NEXT_TELEMETRY_DISABLED =
+  process.env.NEXT_TELEMETRY_DISABLED || "1";
+
+const requireFromApp = createRequire(serverEntry);
+requireFromApp("./server.js");
+
+function ensureExtracted() {
+  if (isReady()) {
+    return extractRoot;
+  }
+
+  const stagingRoot = \`\${extractRoot}.staging-\${process.pid}-\${Date.now()}\`;
+
+  fs.rmSync(stagingRoot, { recursive: true, force: true });
+
+  for (const file of manifest.files) {
+    const output = Buffer.from(sea.getAsset(file.assetKey));
+    const destinationPath = path.join(stagingRoot, file.path);
+
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.writeFileSync(destinationPath, output);
+  }
+
+  fs.writeFileSync(
+    path.join(stagingRoot, ".sea-ready.json"),
+    JSON.stringify({
+      bundleId: manifest.bundleId,
+      fileCount: manifest.files.length,
+    }),
+    "utf8"
+  );
+
+  try {
+    fs.renameSync(stagingRoot, extractRoot);
+  } catch (error) {
+    if (!isReady()) {
+      throw error;
+    }
+
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
+  }
+
+  return extractRoot;
+}
+
+function isReady() {
+  try {
+    const state = JSON.parse(fs.readFileSync(readyFile, "utf8"));
+    return (
+      state.bundleId === manifest.bundleId &&
+      fs.existsSync(path.join(extractRoot, "server.js"))
+    );
+  } catch {
+    return false;
+  }
+}
+`;
+  }
+
   return `"use strict";
 
 const fs = require("node:fs");
@@ -434,6 +537,22 @@ function mapArch(arch) {
 
 function toPosixPath(value) {
   return value.split(path.sep).join("/");
+}
+
+function toAssetKey(relativePath) {
+  return `__web3d__/${relativePath}`;
+}
+
+function buildSeaAssets(runtimeFiles, manifestPath) {
+  const assets = {
+    [SEA_MANIFEST_ASSET_KEY]: manifestPath,
+  };
+
+  for (const file of runtimeFiles) {
+    assets[file.assetKey] = file.absolutePath;
+  }
+
+  return assets;
 }
 
 function sanitizeSegment(value) {
