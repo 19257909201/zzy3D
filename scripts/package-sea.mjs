@@ -342,27 +342,6 @@ if (!fs.existsSync(serverEntry)) {
   process.exit(1);
 }
 
-function appendFileContents(targetPath, sourcePath) {
-  const inputFd = fs.openSync(sourcePath, "r");
-  const outputFd = fs.openSync(targetPath, "a");
-  const buffer = Buffer.alloc(1024 * 1024);
-
-  try {
-    while (true) {
-      const bytesRead = fs.readSync(inputFd, buffer, 0, buffer.length, null);
-
-      if (bytesRead === 0) {
-        break;
-      }
-
-      fs.writeSync(outputFd, buffer, 0, bytesRead);
-    }
-  } finally {
-    fs.closeSync(inputFd);
-    fs.closeSync(outputFd);
-  }
-}
-
 process.chdir(appRoot);
 process.env.NODE_ENV = process.env.NODE_ENV || "production";
 process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
@@ -482,6 +461,27 @@ function readRange(fd, position, length) {
   return buffer;
 }
 `;
+}
+
+function appendFileContents(targetPath, sourcePath) {
+  const inputFd = fs.openSync(sourcePath, "r");
+  const outputFd = fs.openSync(targetPath, "a");
+  const buffer = Buffer.alloc(1024 * 1024);
+
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(inputFd, buffer, 0, buffer.length, null);
+
+      if (bytesRead === 0) {
+        break;
+      }
+
+      fs.writeSync(outputFd, buffer, 0, bytesRead);
+    }
+  } finally {
+    fs.closeSync(inputFd);
+    fs.closeSync(outputFd);
+  }
 }
 
 function createMacLauncherSource(bundleId) {
