@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:sea": "node scripts/package-sea.cjs",
+    "build:sea": "node scripts/package-sea.mjs",
     "start": "next start",
     "lint": "eslint"
   },
