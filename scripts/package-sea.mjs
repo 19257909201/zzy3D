@@ -40,6 +40,7 @@ const distDir = path.join(PROJECT_ROOT, "dist");
 const seaWorkDir = path.join(distDir, "sea", targetId);
 const releaseDir = path.join(distDir, "release");
 const outputBinary = path.join(releaseDir, executableName);
+const postjectCliPath = path.join(PROJECT_ROOT, "node_modules", "postject", "dist", "cli.js");
 
 main();
 
@@ -93,9 +94,7 @@ function main() {
   }
 
   const postjectArgs = [
-    "exec",
-    "--",
-    "postject",
+    postjectCliPath,
     outputBinary,
     "NODE_SEA_BLOB",
     seaBlobPath,
@@ -107,7 +106,7 @@ function main() {
     postjectArgs.push("--macho-segment-name", "NODE_SEA");
   }
 
-  run(npmCommand(), postjectArgs);
+  run(process.execPath, postjectArgs);
   appendRuntimeArchive(outputBinary, runtimeFiles, archiveManifest);
 
   if (process.platform === "darwin") {
@@ -447,19 +446,21 @@ function ensureExists(targetPath, message) {
   }
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: PROJECT_ROOT,
     stdio: "inherit",
   });
 
+  if (result.error) {
+    throw new Error(
+      `Command failed to start (${command} ${args.join(" ")}): ${result.error.message}`
+    );
+  }
+
   if (result.status !== 0) {
     throw new Error(
-      `Command failed (${command} ${args.join(" ")}), exit code: ${result.status}`
+      `Command failed (${command} ${args.join(" ")}), exit code: ${result.status}, signal: ${result.signal ?? "none"}`
     );
   }
 }
