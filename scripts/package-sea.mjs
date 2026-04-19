@@ -12,9 +12,8 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const PACKAGE_JSON = JSON.parse(
   fs.readFileSync(path.join(PROJECT_ROOT, "package.json"), "utf8")
 );
-const ARCHIVE_MODE = process.platform === "darwin" ? "sea-assets" : "footer";
+const PACKAGER_FORMAT_VERSION = 2;
 const SENTINEL_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
-const SEA_MANIFEST_ASSET_KEY = "__web3d__/manifest.json";
 const FOOTER_MAGIC = "WEB3DSEA_ARCHIVE_V1";
 const FOOTER_MAGIC_BUFFER = Buffer.from(FOOTER_MAGIC, "utf8");
 const FOOTER_SIZE = FOOTER_MAGIC_BUFFER.length + 8;
@@ -63,17 +62,19 @@ function main() {
 
   const runtimeFiles = collectRuntimeFiles();
   const archiveManifest = createArchiveManifest(runtimeFiles);
+
+  if (process.platform === "darwin") {
+    buildMacSelfExtractingBinary(archiveManifest);
+    exposeGithubOutputs();
+    console.log(`Created single-file executable: ${outputBinary}`);
+    return;
+  }
+
   const bootstrapPath = path.join(seaWorkDir, "bootstrap.cjs");
-  const manifestPath = path.join(seaWorkDir, "bundle-manifest.json");
   const seaConfigPath = path.join(seaWorkDir, "sea-config.json");
   const seaBlobPath = path.join(seaWorkDir, "sea-prep.blob");
 
   fs.writeFileSync(bootstrapPath, createBootstrapSource(), "utf8");
-  fs.writeFileSync(
-    manifestPath,
-    JSON.stringify(archiveManifest, null, 2) + "\n",
-    "utf8"
-  );
   fs.writeFileSync(
     seaConfigPath,
     JSON.stringify(
@@ -83,9 +84,6 @@ function main() {
         disableExperimentalSEAWarning: true,
         useSnapshot: false,
         useCodeCache: false,
-        ...(ARCHIVE_MODE === "sea-assets"
-          ? { assets: buildSeaAssets(runtimeFiles, manifestPath) }
-          : {}),
       },
       null,
       2
@@ -118,18 +116,37 @@ function main() {
   }
 
   run(process.execPath, postjectArgs);
-
-  if (ARCHIVE_MODE === "footer") {
-    appendRuntimeArchive(outputBinary, runtimeFiles, archiveManifest);
-  }
-
-  if (process.platform === "darwin") {
-    run("codesign", ["--sign", "-", outputBinary]);
-  }
+  appendRuntimeArchive(outputBinary, runtimeFiles, archiveManifest);
 
   exposeGithubOutputs();
 
   console.log(`Created single-file executable: ${outputBinary}`);
+}
+
+function buildMacSelfExtractingBinary(archiveManifest) {
+  const payloadRoot = path.join(seaWorkDir, "payload");
+  const appRoot = path.join(payloadRoot, "app");
+  const embeddedNodePath = path.join(payloadRoot, "node");
+  const archivePath = path.join(seaWorkDir, "payload.tar.gz");
+
+  fs.rmSync(payloadRoot, { recursive: true, force: true });
+  fs.rmSync(archivePath, { force: true });
+  fs.mkdirSync(appRoot, { recursive: true });
+
+  copyDirectory(buildStandaloneDir, appRoot);
+  copyDirectory(buildStaticDir, path.join(appRoot, ".next", "static"));
+  copyOptionalDirectory("public", path.join(appRoot, "public"));
+  copyOptionalDirectory("glbfile", path.join(appRoot, "glbfile"));
+
+  fs.copyFileSync(process.execPath, embeddedNodePath);
+  fs.chmodSync(embeddedNodePath, 0o755);
+
+  run("tar", ["-czf", archivePath, "-C", payloadRoot, "."]);
+
+  const launcher = createMacLauncherSource(archiveManifest.bundleId);
+  fs.writeFileSync(outputBinary, launcher, "utf8");
+  appendFileContents(outputBinary, archivePath);
+  fs.chmodSync(outputBinary, 0o755);
 }
 
 function collectRuntimeFiles() {
@@ -145,6 +162,24 @@ function collectRuntimeFiles() {
   return [...filesByPath.values()].sort((left, right) =>
     left.relativePath.localeCompare(right.relativePath)
   );
+}
+
+function copyDirectory(source, destination) {
+  fs.cpSync(source, destination, {
+    recursive: true,
+    dereference: true,
+    force: true,
+  });
+}
+
+function copyOptionalDirectory(sourceName, destination) {
+  const source = path.join(PROJECT_ROOT, sourceName);
+
+  if (!fs.existsSync(source)) {
+    return;
+  }
+
+  copyDirectory(source, destination);
 }
 
 function addOptionalDirectory(filesByPath, directory) {
@@ -172,7 +207,6 @@ function addDirectoryToRuntimeFiles(
       : relativeFromRoot;
 
     filesByPath.set(relativePath, {
-      assetKey: toAssetKey(relativePath),
       absolutePath,
       relativePath,
     });
@@ -218,13 +252,13 @@ function createArchiveManifest(runtimeFiles) {
 
   return {
     version: 1,
+    packagerVersion: PACKAGER_FORMAT_VERSION,
     productName,
     releaseTag,
     targetId,
     bundleId: createHash("sha256").update(buildSeed).digest("hex").slice(0, 16),
     payloadSize: 0,
     files: runtimeFiles.map((file) => ({
-      assetKey: file.assetKey,
       path: file.relativePath,
       offset: 0,
       size: 0,
@@ -281,93 +315,6 @@ function appendRuntimeArchive(binaryPath, runtimeFiles, archiveManifest) {
 }
 
 function createBootstrapSource() {
-  if (ARCHIVE_MODE === "sea-assets") {
-    return `"use strict";
-
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const sea = require("node:sea");
-const { createRequire } = require("node:module");
-
-const MANIFEST_ASSET_KEY = ${JSON.stringify(SEA_MANIFEST_ASSET_KEY)};
-const manifest = JSON.parse(sea.getAsset(MANIFEST_ASSET_KEY, "utf8"));
-const extractRoot = path.join(
-  os.tmpdir(),
-  \`\${manifest.productName}-sea-\${manifest.bundleId}-\${manifest.targetId}\`
-);
-const readyFile = path.join(extractRoot, ".sea-ready.json");
-const appRoot = ensureExtracted();
-const serverEntry = path.join(appRoot, "server.js");
-
-if (!fs.existsSync(serverEntry)) {
-  console.error("Unable to locate extracted Next.js server at", serverEntry);
-  process.exit(1);
-}
-
-process.chdir(appRoot);
-process.env.NODE_ENV = process.env.NODE_ENV || "production";
-process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
-process.env.PORT = process.env.PORT || "3000";
-process.env.NEXT_TELEMETRY_DISABLED =
-  process.env.NEXT_TELEMETRY_DISABLED || "1";
-
-const requireFromApp = createRequire(serverEntry);
-requireFromApp("./server.js");
-
-function ensureExtracted() {
-  if (isReady()) {
-    return extractRoot;
-  }
-
-  const stagingRoot = \`\${extractRoot}.staging-\${process.pid}-\${Date.now()}\`;
-
-  fs.rmSync(stagingRoot, { recursive: true, force: true });
-
-  for (const file of manifest.files) {
-    const output = Buffer.from(sea.getAsset(file.assetKey));
-    const destinationPath = path.join(stagingRoot, file.path);
-
-    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-    fs.writeFileSync(destinationPath, output);
-  }
-
-  fs.writeFileSync(
-    path.join(stagingRoot, ".sea-ready.json"),
-    JSON.stringify({
-      bundleId: manifest.bundleId,
-      fileCount: manifest.files.length,
-    }),
-    "utf8"
-  );
-
-  try {
-    fs.renameSync(stagingRoot, extractRoot);
-  } catch (error) {
-    if (!isReady()) {
-      throw error;
-    }
-
-    fs.rmSync(stagingRoot, { recursive: true, force: true });
-  }
-
-  return extractRoot;
-}
-
-function isReady() {
-  try {
-    const state = JSON.parse(fs.readFileSync(readyFile, "utf8"));
-    return (
-      state.bundleId === manifest.bundleId &&
-      fs.existsSync(path.join(extractRoot, "server.js"))
-    );
-  } catch {
-    return false;
-  }
-}
-`;
-  }
-
   return `"use strict";
 
 const fs = require("node:fs");
@@ -393,6 +340,27 @@ const serverEntry = path.join(appRoot, "server.js");
 if (!fs.existsSync(serverEntry)) {
   console.error("Unable to locate extracted Next.js server at", serverEntry);
   process.exit(1);
+}
+
+function appendFileContents(targetPath, sourcePath) {
+  const inputFd = fs.openSync(sourcePath, "r");
+  const outputFd = fs.openSync(targetPath, "a");
+  const buffer = Buffer.alloc(1024 * 1024);
+
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(inputFd, buffer, 0, buffer.length, null);
+
+      if (bytesRead === 0) {
+        break;
+      }
+
+      fs.writeSync(outputFd, buffer, 0, bytesRead);
+    }
+  } finally {
+    fs.closeSync(inputFd);
+    fs.closeSync(outputFd);
+  }
 }
 
 process.chdir(appRoot);
@@ -434,6 +402,7 @@ function ensureExtracted(archive) {
     path.join(stagingRoot, ".sea-ready.json"),
     JSON.stringify({
       bundleId: archive.manifest.bundleId,
+      packagerVersion: archive.manifest.packagerVersion,
       fileCount: archive.manifest.files.length,
     }),
     "utf8"
@@ -459,7 +428,11 @@ function isReady() {
     const state = JSON.parse(fs.readFileSync(readyFile, "utf8"));
     return (
       state.bundleId === manifest.bundleId &&
-      fs.existsSync(path.join(extractRoot, "server.js"))
+      state.packagerVersion === manifest.packagerVersion &&
+      fs.existsSync(path.join(extractRoot, "server.js")) &&
+      fs.existsSync(path.join(extractRoot, ".next", "static")) &&
+      fs.existsSync(path.join(extractRoot, "public")) &&
+      fs.existsSync(path.join(extractRoot, "glbfile", "location.png"))
     );
   } catch {
     return false;
@@ -511,6 +484,56 @@ function readRange(fd, position, length) {
 `;
 }
 
+function createMacLauncherSource(bundleId) {
+  const archiveLinePlaceholder = "0000000000";
+  const script = `#!/bin/sh
+set -eu
+
+BUNDLE_ID="${bundleId}"
+PACKAGER_VERSION="${PACKAGER_FORMAT_VERSION}"
+PRODUCT_NAME="${productName}"
+TARGET_ID="${targetId}"
+ARCHIVE_LINE=${archiveLinePlaceholder}
+
+CACHE_BASE="\${TMPDIR:-/tmp}"
+CACHE_DIR="$CACHE_BASE/$PRODUCT_NAME-sea-$BUNDLE_ID-$TARGET_ID"
+READY_FILE="$CACHE_DIR/.ready"
+APP_ROOT="$CACHE_DIR/app"
+NODE_BIN="$CACHE_DIR/node"
+
+extract_bundle() {
+  stage_dir="$CACHE_DIR.staging.$$"
+
+  rm -rf "$stage_dir"
+  mkdir -p "$stage_dir"
+  tail -n +"$ARCHIVE_LINE" "$0" | tar -xzf - -C "$stage_dir"
+  printf '%s\\n' "$BUNDLE_ID:$PACKAGER_VERSION" > "$stage_dir/.ready"
+
+  if ! mv "$stage_dir" "$CACHE_DIR" 2>/dev/null; then
+    rm -rf "$stage_dir"
+  fi
+}
+
+if [ ! -f "$READY_FILE" ] || [ "$(cat "$READY_FILE" 2>/dev/null)" != "$BUNDLE_ID:$PACKAGER_VERSION" ]; then
+  rm -rf "$CACHE_DIR"
+  extract_bundle
+fi
+
+cd "$APP_ROOT"
+export NODE_ENV="\${NODE_ENV:-production}"
+export HOSTNAME="\${HOSTNAME:-0.0.0.0}"
+export PORT="\${PORT:-3000}"
+export NEXT_TELEMETRY_DISABLED="\${NEXT_TELEMETRY_DISABLED:-1}"
+
+exec "$NODE_BIN" "$APP_ROOT/server.js" "$@"
+__ARCHIVE_BELOW__
+`;
+
+  const archiveLine = `${script.split("\n").length}`;
+
+  return script.replace(archiveLinePlaceholder, archiveLine);
+}
+
 function mapPlatform(platform) {
   switch (platform) {
     case "darwin":
@@ -537,22 +560,6 @@ function mapArch(arch) {
 
 function toPosixPath(value) {
   return value.split(path.sep).join("/");
-}
-
-function toAssetKey(relativePath) {
-  return `__web3d__/${relativePath}`;
-}
-
-function buildSeaAssets(runtimeFiles, manifestPath) {
-  const assets = {
-    [SEA_MANIFEST_ASSET_KEY]: manifestPath,
-  };
-
-  for (const file of runtimeFiles) {
-    assets[file.assetKey] = file.absolutePath;
-  }
-
-  return assets;
 }
 
 function sanitizeSegment(value) {
