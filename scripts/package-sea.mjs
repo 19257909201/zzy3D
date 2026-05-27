@@ -137,6 +137,7 @@ function buildMacSelfExtractingBinary(archiveManifest) {
   copyDirectory(buildStaticDir, path.join(appRoot, ".next", "static"));
   copyOptionalDirectory("public", path.join(appRoot, "public"));
   copyOptionalDirectory("glbfile", path.join(appRoot, "glbfile"));
+  copyOptionalDirectory("config", path.join(appRoot, "config"));
 
   fs.copyFileSync(process.execPath, embeddedNodePath);
   fs.chmodSync(embeddedNodePath, 0o755);
@@ -158,6 +159,7 @@ function collectRuntimeFiles() {
   addDirectoryToRuntimeFiles(filesByPath, buildStaticDir, ".next/static");
   addOptionalDirectory(filesByPath, "public");
   addOptionalDirectory(filesByPath, "glbfile");
+  addOptionalDirectory(filesByPath, "config");
 
   return [...filesByPath.values()].sort((left, right) =>
     left.relativePath.localeCompare(right.relativePath)
@@ -344,8 +346,8 @@ if (!fs.existsSync(serverEntry)) {
 
 process.chdir(appRoot);
 process.env.NODE_ENV = process.env.NODE_ENV || "production";
-process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
-process.env.PORT = process.env.PORT || "3000";
+process.env.HOSTNAME = "localhost";
+process.env.PORT = "8080";
 process.env.NEXT_TELEMETRY_DISABLED =
   process.env.NEXT_TELEMETRY_DISABLED || "1";
 
@@ -521,8 +523,8 @@ fi
 
 cd "$APP_ROOT"
 export NODE_ENV="\${NODE_ENV:-production}"
-export HOSTNAME="\${HOSTNAME:-0.0.0.0}"
-export PORT="\${PORT:-3000}"
+export HOSTNAME="localhost"
+export PORT="8080"
 export NEXT_TELEMETRY_DISABLED="\${NEXT_TELEMETRY_DISABLED:-1}"
 
 exec "$NODE_BIN" "$APP_ROOT/server.js" "$@"

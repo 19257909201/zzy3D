@@ -1,7 +1,9 @@
+import { connection } from "next/server";
 import ModelViewer from "@/components/ModelViewer";
 import { getAvailableSiteModels } from "@/lib/site-models";
 
 export default async function Home() {
+  await connection();
   const models = await getAvailableSiteModels();
 
   return (

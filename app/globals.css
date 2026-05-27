@@ -28,12 +28,98 @@
 
 html {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+}
+
+.paper-scrollarea {
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.paper-scrollarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.daylight-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 22px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.daylight-slider:focus {
+  outline: none;
+}
+
+.daylight-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(36, 43, 39, 0.22);
+  box-shadow:
+    inset 0 1px 1px rgba(20, 28, 25, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.daylight-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8.5px;
+  border: 4px solid rgba(255, 255, 255, 0.96);
+  border-radius: 999px;
+  background: #2f7fbd;
+  box-shadow:
+    0 6px 16px rgba(39, 111, 171, 0.24),
+    0 0 0 1px rgba(31, 75, 108, 0.2);
+}
+
+.daylight-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 6px 16px rgba(39, 111, 171, 0.24),
+    0 0 0 1px rgba(31, 75, 108, 0.2),
+    0 0 0 4px rgba(47, 127, 189, 0.18);
+}
+
+.daylight-slider::-moz-range-track {
+  height: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(36, 43, 39, 0.22);
+  box-shadow:
+    inset 0 1px 1px rgba(20, 28, 25, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.daylight-slider::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(36, 43, 39, 0.22);
+}
+
+.daylight-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 4px solid rgba(255, 255, 255, 0.96);
+  border-radius: 999px;
+  background: #2f7fbd;
+  box-shadow:
+    0 6px 16px rgba(39, 111, 171, 0.24),
+    0 0 0 1px rgba(31, 75, 108, 0.2);
 }

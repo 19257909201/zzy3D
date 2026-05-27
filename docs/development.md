@@ -36,7 +36,7 @@ npm run dev
 默认访问地址：
 
 ```text
-http://localhost:3000
+http://localhost:8080
 ```
 
 ### 3.3 常用命令
@@ -55,6 +55,7 @@ app/
   api/
     layout-image/route.ts    地图底图接口
     model/route.ts           GLB 模型流式接口
+  models/[slug]/page.tsx     建筑详情页，刷新后仍进入对应模型
   globals.css                全局样式与主题变量
   layout.tsx                 根布局与 metadata
   page.tsx                   首页 Server Component
@@ -62,8 +63,11 @@ app/
 components/
   ModelViewer.tsx            核心交互组件，承载总览态与单体态
 
+config/
+  site-model-content.json    建筑内容配置，按 slug 分组
+
 lib/
-  site-models.ts             模型清单、元数据、资源发现逻辑
+  site-models.ts             模型位置配置、文案配置读取、资源发现逻辑
 
 glbfile/
   *.glb                      建筑模型文件
@@ -83,19 +87,22 @@ docs/
 
 页面分为两层：
 
-- 服务端入口层：`app/page.tsx`
+- 服务端入口层：`app/page.tsx`、`app/models/[slug]/page.tsx`
 - 客户端交互层：`components/ModelViewer.tsx`
 
 服务端入口层职责：
 
 - 调用 `getAvailableSiteModels()`
 - 在服务端读取当前可用模型列表
+- 通过 `connection()` 强制首页按请求读取模型与文案配置
+- 在 `/models/{slug}` 中校验目标建筑存在，不存在则进入 404
 - 将模型概要数据传给客户端组件
 
 客户端交互层职责：
 
 - 管理总览态和单体态切换
 - 管理墨迹转场状态
+- 在墨迹遮罩覆盖时用 `history.pushState` 更新 `/models/{slug}`，保留无刷新切换体验
 - 加载 3D 模型并初始化 Three.js 场景
 - 管理解说面板与音频播放
 
@@ -103,22 +110,24 @@ docs/
 
 项目数据目前不是来自数据库，而是来自本地文件系统和静态配置。
 
-数据由两部分组成：
+数据由三部分组成：
 
-- 静态元数据：定义在 `lib/site-models.ts` 的 `SITE_MODEL_CATALOG`
+- 内容配置：定义在 `config/site-model-content.json`
+- 地图位置配置：定义在 `lib/site-models.ts` 的 `SITE_MODEL_PLACEMENTS`
 - 资源文件：`glbfile/*.glb`、`glbfile/location.png`、`public/audio/*`
 
 读取逻辑：
 
 1. 服务端扫描 `glbfile` 目录中的 `.glb` 文件。
-2. 将扫描结果与 `SITE_MODEL_CATALOG` 按 `slug` 对齐。
-3. 已配置的模型返回完整元数据。
-4. 未配置但实际存在的模型会生成兜底文案和默认地图位置。
+2. 读取 `config/site-model-content.json`，按建筑 `slug` 合并文案。
+3. 将扫描结果与 `SITE_MODEL_PLACEMENTS` 按 `slug` 对齐地图位置。
+4. 已配置的模型返回完整元数据。
+5. 未配置但实际存在的模型会生成兜底文案和默认地图位置。
 
 这意味着：
 
 - 模型文件是“真数据源”。
-- 元数据配置是“增强层”。
+- 内容配置和地图位置配置是“增强层”。
 - 就算忘记配置文案，只要 GLB 文件存在，应用仍可展示该模型。
 
 ### 5.3 资源访问方式
@@ -137,7 +146,8 @@ docs/
 
 该模块是资源层和内容层之间的桥梁，主要职责：
 
-- 保存建筑元数据目录
+- 保存建筑地图位置目录
+- 读取 `config/site-model-content.json` 中的建筑文案
 - 提供地图图片路径
 - 提供当前可用模型列表
 - 提供单个建筑模型资源信息
@@ -285,12 +295,12 @@ docs/
 ### 8.1 新增一个建筑模型
 
 1. 将模型文件放入 `glbfile/`，文件名必须为 `{slug}.glb`
-2. 在 `lib/site-models.ts` 的 `SITE_MODEL_CATALOG` 中增加对应配置
-3. 填写地图位置、摘要、诗句、解说文案等字段
+2. 在 `lib/site-models.ts` 的 `SITE_MODEL_PLACEMENTS` 中增加地图位置配置
+3. 在 `config/site-model-content.json` 中按 `{slug}` 增加内容配置
 4. 如需旁白，将音频文件放入 `public/audio/`
 5. 音频文件名建议与 `slug` 一致，例如 `yuanxiangtang.mp3`
 
-### 8.2 只新增模型文件、不补元数据
+### 8.2 只新增模型文件、不补配置
 
 应用仍会显示该模型，但会使用兜底策略：
 
@@ -302,7 +312,7 @@ docs/
 
 ### 8.3 修改地图落点
 
-在 `SITE_MODEL_CATALOG` 中修改：
+在 `SITE_MODEL_PLACEMENTS` 中修改：
 
 - `mapPosition.x`
 - `mapPosition.y`
@@ -313,6 +323,21 @@ docs/
 
 - `mapPosition` 使用相对比例坐标
 - `mapSize` 用于控制地图高亮裁切区域大小
+
+### 8.4 修改建筑文案
+
+在 `config/site-model-content.json` 中找到对应 `{slug}`，修改以下字段：
+
+- `label`
+- `summary`
+- `verse`
+- `interpretation`
+- `overviewMeta`
+- `overviewTag`
+- `overviewCopy`
+- `overviewHint`
+
+`interpretation` 中使用 `\n` 表示换行。AI 或脚本更新文案时，只需要按建筑 `slug` 读写这个配置文件，不需要改 `lib/site-models.ts`。
 
 ## 9. 样式与视觉实现
 
@@ -352,7 +377,7 @@ docs/
 优先级从高到低如下：
 
 1. 将 `ModelViewer.tsx` 拆分为 `overview/`、`viewer/`、`transition/`、`shared/` 等子模块
-2. 将建筑内容从 `lib/site-models.ts` 迁移到独立内容文件或 CMS 数据源
+2. 将建筑内容接入 CMS 数据源
 3. 为模型资源增加版本化缓存策略
 4. 为交互状态增加最小粒度的单元测试和集成测试
 5. 引入模型压缩和资源预加载策略

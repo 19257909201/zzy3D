@@ -20,7 +20,7 @@ npm run dev
 访问：
 
 ```text
-http://localhost:3000
+http://localhost:8080
 ```
 
 ## 常用命令
@@ -40,6 +40,8 @@ npm run lint
 ## 资源约定
 
 - 建筑模型存放在 `glbfile/`，文件名格式为 `{slug}.glb`
+- 建筑详情页路径为 `/models/{slug}`，例如 `/models/yuanxiangtang`
 - 园林总平面图为 `glbfile/location.png`
 - 音频旁白存放在 `public/audio/`
-- 建筑元数据配置位于 `lib/site-models.ts`
+- 建筑内容配置位于 `config/site-model-content.json`，按 `{slug}` 分组
+- 建筑地图位置配置位于 `lib/site-models.ts`
