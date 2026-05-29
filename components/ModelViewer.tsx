@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  useMemo,
 } from "react";
 import type { SiteModelPicture, SiteModelSummary } from "@/lib/site-models";
 import type {
@@ -39,8 +40,12 @@ type ModelViewerProps = {
 type OverviewStageProps = {
   models: SiteModelSummary[];
   onSelect: (slug: string) => void;
+  activeThemeRoute: ThemeRoute | null;
+  onThemeRouteChange: (routeId: ThemeRouteId | null) => void;
   isBackgroundAudioEnabled: boolean;
   onBackgroundAudioToggle: () => void;
+  tourProgress: TourProgress;
+  visitedModelSlugs: ReadonlySet<string>;
 };
 
 type SingleModelStageProps = {
@@ -48,15 +53,19 @@ type SingleModelStageProps = {
   model: SiteModelSummary;
   onSelect: (slug: string) => void;
   onBack: () => void;
+  activeThemeRoute: ThemeRoute | null;
   isBackgroundAudioEnabled: boolean;
   onBackgroundAudioToggle: () => void;
+  tourProgress: TourProgress;
+  visitedModelSlugs: ReadonlySet<string>;
 };
 
 type OverviewMapFrameProps = {
   highlightedModel?: SiteModelSummary | null;
   mapMode: MapMode;
   models: SiteModelSummary[];
-  showRecommendedRoute: boolean;
+  activeThemeRoute: ThemeRoute | null;
+  visitedModelSlugs: ReadonlySet<string>;
   children?: ReactNode;
 };
 
@@ -66,6 +75,8 @@ type MapLabelProps = {
   onPreview: (slug: string) => void;
   onPreviewClear: () => void;
   isPreviewed: boolean;
+  isVisited: boolean;
+  routeOrder?: number;
 };
 
 type DirectoryDrawerProps = {
@@ -76,6 +87,8 @@ type DirectoryDrawerProps = {
   onSelect: (slug: string) => void;
   onPreview?: (slug: string) => void;
   onPreviewClear?: () => void;
+  tourProgress?: TourProgress;
+  visitedModelSlugs?: ReadonlySet<string>;
 };
 
 type InkTransitionPhase = "covering" | "revealing" | "hidden";
@@ -83,13 +96,24 @@ type InkTransitionKind = "initial" | "switch";
 type MapMode = "normal" | "heat";
 type InterpretationMode = "intro" | "detail";
 type OverviewIntroPanelPhase = "visible" | "leaving" | "hidden";
+type ThemeRouteId =
+  | "first-visit"
+  | "lotus"
+  | "borrowed-view"
+  | "scholar-study"
+  | "seasonal";
 
 type SiteModelHeatData = {
   value: number;
-  level: "极热" | "高热" | "中热" | "温和";
+  level: "极热" | "高热" | "中热" | "温和" | "清静";
   color: RgbColor;
   radius: number;
   opacity: number;
+};
+
+type TourProgress = {
+  visitedCount: number;
+  totalCount: number;
 };
 
 type NormalizedMapPoint = {
@@ -97,7 +121,17 @@ type NormalizedMapPoint = {
   y: number;
 };
 
-type RecommendedRouteWaypoint = NormalizedMapPoint | { slug: string };
+type ThemeRouteWaypoint = NormalizedMapPoint | { slug: string };
+
+type ThemeRoute = {
+  id: ThemeRouteId;
+  label: string;
+  shortLabel: string;
+  summary: string;
+  description: string;
+  waypoints: readonly ThemeRouteWaypoint[];
+  accent: RgbColor;
+};
 
 type InkWashOverlayProps = {
   phase: InkTransitionPhase;
@@ -109,6 +143,20 @@ type BackgroundAudioButtonProps = {
   isEnabled: boolean;
   onToggle: () => void;
   className?: string;
+};
+
+type TourProgressBadgeProps = {
+  progress: TourProgress;
+  className?: string;
+};
+
+type ThemeRouteSelectorPanelProps = {
+  models: SiteModelSummary[];
+  activeRoute: ThemeRoute | null;
+  visitedModelSlugs: ReadonlySet<string>;
+  onSelectRoute: (routeId: ThemeRouteId) => void;
+  onClearRoute: () => void;
+  onStartRoute: () => void;
 };
 
 type BuildingGalleryPanelProps = {
@@ -179,6 +227,7 @@ const PAPER_BUTTON_CLASS =
 const JADE_BUTTON_CLASS =
   "shrink-0 items-center justify-center rounded-full border border-[#7b6247]/16 bg-[radial-gradient(circle_at_38%_30%,_rgba(255,255,255,0.96)_0%,_rgba(248,243,235,0.9)_36%,_rgba(217,202,181,0.82)_100%)] text-[#5a4839] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_6px_14px_rgba(45,31,20,0.12)] transition hover:border-[#6f563d]/28 hover:bg-[radial-gradient(circle_at_38%_30%,_rgba(255,255,255,1)_0%,_rgba(250,246,240,0.98)_38%,_rgba(226,211,190,0.92)_100%)] disabled:cursor-not-allowed disabled:opacity-45";
 const MODEL_ROUTE_PREFIX = "/models";
+const VISITED_SITE_MODELS_STORAGE_KEY = "web3d:visited-site-models:v1";
 let hasOverviewIntroPanelBeenShown = false;
 
 type RgbColor = readonly [number, number, number];
@@ -255,6 +304,13 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.172,
     opacity: 0.67,
   },
+  sanshiliuyuanyangguan: {
+    value: 86,
+    level: "高热",
+    color: [232, 111, 42],
+    radius: 0.17,
+    opacity: 0.66,
+  },
   hefengsimianting: {
     value: 85,
     level: "高热",
@@ -283,6 +339,13 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.128,
     opacity: 0.5,
   },
+  wuzhuyouju: {
+    value: 79,
+    level: "中热",
+    color: [229, 184, 45],
+    radius: 0.144,
+    opacity: 0.56,
+  },
   fucuige: {
     value: 76,
     level: "中热",
@@ -304,6 +367,27 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.132,
     opacity: 0.52,
   },
+  daishuangting: {
+    value: 73,
+    level: "温和",
+    color: [68, 165, 99],
+    radius: 0.13,
+    opacity: 0.5,
+  },
+  daoyinglou: {
+    value: 71,
+    level: "温和",
+    color: [68, 165, 99],
+    radius: 0.128,
+    opacity: 0.5,
+  },
+  liuyinluqu: {
+    value: 70,
+    level: "温和",
+    color: [68, 165, 99],
+    radius: 0.124,
+    opacity: 0.48,
+  },
   yulantang: {
     value: 68,
     level: "温和",
@@ -311,50 +395,178 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.12,
     opacity: 0.46,
   },
+  haitangchunwu: {
+    value: 66,
+    level: "清静",
+    color: [68, 165, 99],
+    radius: 0.116,
+    opacity: 0.44,
+  },
+  nanxuan: {
+    value: 64,
+    level: "清静",
+    color: [68, 165, 99],
+    radius: 0.112,
+    opacity: 0.42,
+  },
 };
 
-const RECOMMENDED_ROUTE_WAYPOINTS: readonly RecommendedRouteWaypoint[] = [
-  { x: 0.94, y: 0.68 },
-  { x: 0.88, y: 0.68 },
-  { slug: "linglongguan" },
-  { x: 0.77, y: 0.7 },
-  { x: 0.735, y: 0.68 },
-  { x: 0.705, y: 0.655 },
-  { slug: "yuanxiangtang" },
-  { x: 0.63, y: 0.66 },
-  { x: 0.6, y: 0.7 },
-  { x: 0.57, y: 0.72 },
-  { slug: "xiaofeihong" },
-  { x: 0.54, y: 0.7 },
-  { x: 0.515, y: 0.66 },
-  { slug: "xiangzhou" },
-  { x: 0.46, y: 0.66 },
-  { x: 0.435, y: 0.7 },
-  { slug: "yulantang" },
-  { x: 0.372, y: 0.72 },
-  { x: 0.36, y: 0.655 },
-  { x: 0.338, y: 0.61 },
-  { x: 0.33, y: 0.525 },
-  { x: 0.365, y: 0.455 },
-  { x: 0.405, y: 0.385 },
-  { x: 0.445, y: 0.335 },
-  { slug: "jianshanlou" },
-  { x: 0.455, y: 0.36 },
-  { x: 0.415, y: 0.43 },
-  { x: 0.405, y: 0.46 },
-  { x: 0.452, y: 0.475 },
-  { x: 0.492, y: 0.49 },
-  { x: 0.52, y: 0.502 },
-  { slug: "hefengsimianting" },
-  { x: 0.565, y: 0.47 },
-  { x: 0.59, y: 0.43 },
-  { slug: "xuexiangyunweiting" },
-  { x: 0.66, y: 0.39 },
-  { x: 0.72, y: 0.37 },
-  { x: 0.79, y: 0.35 },
-  { x: 0.86, y: 0.35 },
-  { x: 0.94, y: 0.35 },
-] as const;
+const THEME_ROUTES = [
+  {
+    id: "first-visit",
+    label: "初游路线",
+    shortLabel: "初游",
+    summary: "从东南入园，先疏后密，完整串起主景与水岸。",
+    description: "适合第一次进入拙政园的完整导览，从庭院、水心、山楼一路走到西部水岸。",
+    accent: [139, 70, 45],
+    waypoints: [
+      { x: 0.94, y: 0.68 },
+      { x: 0.88, y: 0.68 },
+      { slug: "tingyuxuan" },
+      { x: 0.86, y: 0.68 },
+      { slug: "haitangchunwu" },
+      { slug: "linglongguan" },
+      { slug: "wuzhuyouju" },
+      { x: 0.78, y: 0.54 },
+      { slug: "daishuangting" },
+      { x: 0.7, y: 0.45 },
+      { slug: "xuexiangyunweiting" },
+      { x: 0.565, y: 0.47 },
+      { slug: "hefengsimianting" },
+      { x: 0.52, y: 0.502 },
+      { x: 0.492, y: 0.49 },
+      { x: 0.452, y: 0.475 },
+      { slug: "liuyinluqu" },
+      { x: 0.405, y: 0.46 },
+      { x: 0.415, y: 0.43 },
+      { x: 0.455, y: 0.36 },
+      { slug: "jianshanlou" },
+      { x: 0.4, y: 0.325 },
+      { slug: "daoyinglou" },
+      { x: 0.23, y: 0.38 },
+      { slug: "fucuige" },
+      { x: 0.22, y: 0.48 },
+      { slug: "yushuitongzuoxuan" },
+      { x: 0.23, y: 0.61 },
+      { slug: "sanshiliuyuanyangguan" },
+      { x: 0.33, y: 0.7 },
+      { slug: "yulantang" },
+      { x: 0.435, y: 0.7 },
+      { x: 0.46, y: 0.66 },
+      { slug: "xiangzhou" },
+      { x: 0.515, y: 0.66 },
+      { slug: "nanxuan" },
+      { x: 0.54, y: 0.7 },
+      { slug: "xiaofeihong" },
+      { x: 0.57, y: 0.72 },
+      { x: 0.6, y: 0.7 },
+      { x: 0.63, y: 0.66 },
+      { slug: "yuanxiangtang" },
+      { x: 0.705, y: 0.655 },
+      { x: 0.735, y: 0.68 },
+      { x: 0.94, y: 0.35 },
+    ],
+  },
+  {
+    id: "lotus",
+    label: "赏荷路线",
+    shortLabel: "赏荷",
+    summary: "围绕中部水面行进，重点看荷香、池心、画舫与桥影。",
+    description: "夏日优先选择，从远香堂到荷风四面亭、香洲、小飞虹，沿水感受荷香与风。",
+    accent: [61, 137, 105],
+    waypoints: [
+      { x: 0.72, y: 0.66 },
+      { slug: "yuanxiangtang" },
+      { x: 0.62, y: 0.59 },
+      { slug: "hefengsimianting" },
+      { x: 0.525, y: 0.61 },
+      { slug: "xiangzhou" },
+      { x: 0.515, y: 0.66 },
+      { slug: "nanxuan" },
+      { x: 0.54, y: 0.7 },
+      { slug: "xiaofeihong" },
+      { x: 0.48, y: 0.72 },
+      { slug: "yulantang" },
+      { x: 0.43, y: 0.68 },
+      { x: 0.46, y: 0.58 },
+      { slug: "liuyinluqu" },
+    ],
+  },
+  {
+    id: "borrowed-view",
+    label: "借景路线",
+    shortLabel: "借景",
+    summary: "登楼、过桥、临水回望，专看框景、对景与远借塔影。",
+    description: "适合想理解造园技法的游览，把高处眺望、窗框取景和水面倒影串起来。",
+    accent: [62, 111, 145],
+    waypoints: [
+      { slug: "yuanxiangtang" },
+      { x: 0.61, y: 0.55 },
+      { slug: "hefengsimianting" },
+      { x: 0.56, y: 0.47 },
+      { slug: "xuexiangyunweiting" },
+      { x: 0.52, y: 0.37 },
+      { slug: "jianshanlou" },
+      { x: 0.43, y: 0.36 },
+      { x: 0.4, y: 0.45 },
+      { slug: "liuyinluqu" },
+      { x: 0.45, y: 0.56 },
+      { slug: "xiangzhou" },
+      { x: 0.52, y: 0.68 },
+      { slug: "xiaofeihong" },
+    ],
+  },
+  {
+    id: "scholar-study",
+    label: "文人书斋路线",
+    shortLabel: "文人",
+    summary: "从听雨、梧竹、海棠到玉兰，走一条更安静的书斋庭院线。",
+    description: "适合慢游，重点看文人起居、植物寄意、听雨声景与庭院停留。",
+    accent: [126, 86, 116],
+    waypoints: [
+      { x: 0.94, y: 0.68 },
+      { slug: "tingyuxuan" },
+      { x: 0.858, y: 0.68 },
+      { slug: "haitangchunwu" },
+      { slug: "linglongguan" },
+      { x: 0.842, y: 0.56 },
+      { slug: "wuzhuyouju" },
+      { x: 0.78, y: 0.48 },
+      { slug: "daishuangting" },
+      { x: 0.69, y: 0.55 },
+      { slug: "yuanxiangtang" },
+      { x: 0.56, y: 0.68 },
+      { slug: "yulantang" },
+      { x: 0.45, y: 0.67 },
+      { slug: "xiangzhou" },
+    ],
+  },
+  {
+    id: "seasonal",
+    label: "四季景观路线",
+    shortLabel: "四季",
+    summary: "春花、夏荷、秋霜、冬梅连读，按季相理解园林时间感。",
+    description: "不限定当季，也能通过题名与植物想象四时流转，适合看季节主题。",
+    accent: [173, 91, 70],
+    waypoints: [
+      { slug: "haitangchunwu" },
+      { x: 0.82, y: 0.58 },
+      { slug: "wuzhuyouju" },
+      { x: 0.78, y: 0.48 },
+      { slug: "daishuangting" },
+      { x: 0.69, y: 0.45 },
+      { slug: "xuexiangyunweiting" },
+      { x: 0.57, y: 0.47 },
+      { slug: "hefengsimianting" },
+      { x: 0.61, y: 0.58 },
+      { slug: "yuanxiangtang" },
+      { x: 0.56, y: 0.69 },
+      { slug: "xiaofeihong" },
+      { x: 0.49, y: 0.72 },
+      { slug: "yulantang" },
+    ],
+  },
+] as const satisfies readonly ThemeRoute[];
 
 type InterpretationAudioRefs = {
   audioRef: MutableRefObject<HTMLAudioElement | null>;
@@ -480,12 +692,64 @@ function getHeatOuterColor(heatData: SiteModelHeatData): RgbColor {
   return [238, 181, 50];
 }
 
-function resolveRecommendedRoutePoints(
+function getThemeRouteById(routeId: ThemeRouteId | null) {
+  if (!routeId) {
+    return null;
+  }
+
+  return THEME_ROUTES.find((route) => route.id === routeId) ?? null;
+}
+
+function getThemeRouteStopSlugs(route: ThemeRoute | null) {
+  if (!route) {
+    return [];
+  }
+
+  return route.waypoints.flatMap((waypoint) =>
+    "slug" in waypoint ? [waypoint.slug] : []
+  );
+}
+
+function resolveThemeRouteStops(
+  route: ThemeRoute | null,
   models: SiteModelSummary[]
-): NormalizedMapPoint[] {
+) {
+  if (!route) {
+    return [];
+  }
+
   const modelBySlug = new Map(models.map((model) => [model.slug, model]));
 
-  return RECOMMENDED_ROUTE_WAYPOINTS.flatMap((waypoint) => {
+  return getThemeRouteStopSlugs(route).flatMap((slug) => {
+    const model = modelBySlug.get(slug);
+
+    return model ? [model] : [];
+  });
+}
+
+function getThemeRouteStopOrder(route: ThemeRoute | null) {
+  const orderBySlug = new Map<string, number>();
+
+  getThemeRouteStopSlugs(route).forEach((slug, index) => {
+    if (!orderBySlug.has(slug)) {
+      orderBySlug.set(slug, index);
+    }
+  });
+
+  return orderBySlug;
+}
+
+function resolveThemeRoutePoints(
+  route: ThemeRoute | null,
+  models: SiteModelSummary[]
+): NormalizedMapPoint[] {
+  if (!route) {
+    return [];
+  }
+
+  const modelBySlug = new Map(models.map((model) => [model.slug, model]));
+
+  return route.waypoints.flatMap((waypoint) => {
     if ("slug" in waypoint) {
       const model = modelBySlug.get(waypoint.slug);
 
@@ -529,7 +793,7 @@ function getRouteCornerPoint(
   };
 }
 
-function toRecommendedRoutePath(points: NormalizedMapPoint[]) {
+function toRoutePath(points: NormalizedMapPoint[]) {
   if (points.length === 0) {
     return "";
   }
@@ -676,6 +940,35 @@ function BackgroundAudioButton({
         )}
       </svg>
     </button>
+  );
+}
+
+function TourProgressBadge({
+  progress,
+  className = "",
+}: TourProgressBadgeProps) {
+  const completionRatio =
+    progress.totalCount > 0 ? progress.visitedCount / progress.totalCount : 0;
+  const completionPercent = Math.min(Math.max(completionRatio * 100, 0), 100);
+
+  return (
+    <span
+      className={`inline-flex min-w-[7.75rem] items-center gap-2 rounded-full border border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.88)] px-2.5 py-1 text-[#5c4a3a] shadow-[inset_0_1px_0_rgba(255,255,255,0.84)] ${className}`}
+      aria-label={`已游览 ${progress.visitedCount}/${progress.totalCount}`}
+    >
+      <span className="shrink-0 text-[10px] leading-none tracking-[0.14em]">
+        已游览
+      </span>
+      <span className="shrink-0 text-[11px] font-semibold leading-none tracking-[0.08em] text-[#2f2118]">
+        {progress.visitedCount}/{progress.totalCount}
+      </span>
+      <span className="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-[#d8c6ae]/62">
+        <span
+          className="block h-full rounded-full bg-[linear-gradient(90deg,_#8f5a3d_0%,_#c28a4b_100%)] transition-[width] duration-500"
+          style={{ width: `${completionPercent}%` }}
+        />
+      </span>
+    </span>
   );
 }
 
@@ -1182,6 +1475,50 @@ function getSlugFromRoutePath(pathname: string, models: SiteModelSummary[]) {
   return models.some((model) => model.slug === slug) ? slug : null;
 }
 
+function readVisitedSiteModelSlugs(modelSlugSet: ReadonlySet<string>) {
+  if (typeof window === "undefined") {
+    return new Set<string>();
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(
+      VISITED_SITE_MODELS_STORAGE_KEY
+    );
+
+    if (!rawValue) {
+      return new Set<string>();
+    }
+
+    const parsedValue = JSON.parse(rawValue) as unknown;
+
+    if (!Array.isArray(parsedValue)) {
+      return new Set<string>();
+    }
+
+    return new Set(
+      parsedValue.filter(
+        (value): value is string =>
+          typeof value === "string" && modelSlugSet.has(value)
+      )
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeVisitedSiteModelSlugs(visitedModelSlugs: ReadonlySet<string>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      VISITED_SITE_MODELS_STORAGE_KEY,
+      JSON.stringify(Array.from(visitedModelSlugs).sort())
+    );
+  } catch {}
+}
+
 function normalizeInterpretationText(text: string) {
   return text.replace(/\n\s*\n+/g, "\n");
 }
@@ -1543,6 +1880,54 @@ function MapBuildingLift({
   );
 }
 
+function MapVisitedFootprintLayer({
+  models,
+  visitedModelSlugs,
+}: {
+  models: SiteModelSummary[];
+  visitedModelSlugs: ReadonlySet<string>;
+}) {
+  const visitedModels = models.filter((model) =>
+    visitedModelSlugs.has(model.slug)
+  );
+
+  if (visitedModels.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[7]">
+      {visitedModels.map((model) => {
+        const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
+        const washWidth = Math.max(model.mapSize.width * 176, 7.4);
+        const washHeight = Math.max(
+          model.mapSize.height * LOCATION_IMAGE_RATIO * 176,
+          5.8
+        );
+
+        return (
+          <div
+            key={model.slug}
+            className="absolute"
+            style={{
+              left: `${mapPosition.x * 100}%`,
+              top: `${mapPosition.y * 100}%`,
+              width: `${washWidth}%`,
+              height: `${washHeight}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+            aria-hidden="true"
+          >
+            <span
+              className="absolute inset-0 rounded-full bg-[rgba(248,242,231,0.58)] shadow-[0_0_26px_rgba(255,248,236,0.48)] mix-blend-screen"
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MapHeatLayerCrop({
   models,
   highlightedSlug,
@@ -1666,9 +2051,20 @@ function MapHeatLayer({
   );
 }
 
-function MapRecommendedRouteLayer({ models }: { models: SiteModelSummary[] }) {
-  const routePoints = resolveRecommendedRoutePoints(models);
-  const routePath = toRecommendedRoutePath(routePoints);
+function MapThemeRouteLayer({
+  models,
+  route,
+}: {
+  models: SiteModelSummary[];
+  route: ThemeRoute;
+}) {
+  const routePoints = resolveThemeRoutePoints(route, models);
+  const routeStops = resolveThemeRouteStops(route, models);
+  const routePath = toRoutePath(routePoints);
+  const routeColor = toRgb(route.accent, 0.88);
+  const routeGlowColor = toRgb(route.accent, 0.2);
+  const routeFlowColor = toRgb(route.accent, 0.42);
+  const routeFilterId = `theme-route-shadow-${route.id}`;
 
   if (!routePath) {
     return null;
@@ -1684,7 +2080,7 @@ function MapRecommendedRouteLayer({ models }: { models: SiteModelSummary[] }) {
       >
         <defs>
           <filter
-            id="recommended-route-shadow"
+            id={routeFilterId}
             x="-8%"
             y="-8%"
             width="116%"
@@ -1703,29 +2099,29 @@ function MapRecommendedRouteLayer({ models }: { models: SiteModelSummary[] }) {
         <path
           d={routePath}
           fill="none"
-          stroke="rgba(248,238,210,0.66)"
+          stroke="rgba(250,243,225,0.74)"
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={12}
           vectorEffect="non-scaling-stroke"
-          filter="url(#recommended-route-shadow)"
+          filter={`url(#${routeFilterId})`}
         />
         <path
-          className="recommended-route-line"
+          className="theme-route-line"
           d={routePath}
           fill="none"
-          stroke="rgba(121,70,48,0.86)"
+          stroke={routeColor}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={5.5}
           vectorEffect="non-scaling-stroke"
         />
         <path
-          className="recommended-route-flow"
+          className="theme-route-flow"
           d={routePath}
           fill="none"
           pathLength={1}
-          stroke="rgba(222,183,112,0.68)"
+          stroke={routeFlowColor}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2.6}
@@ -1733,20 +2129,41 @@ function MapRecommendedRouteLayer({ models }: { models: SiteModelSummary[] }) {
         />
       </svg>
 
+      {routeStops.map((stop, index) => {
+        const mapPosition = stop.mapPosition ?? FALLBACK_MAP_POSITION;
+
+        return (
+          <span
+            key={`${route.id}-${stop.slug}`}
+            className="absolute flex h-6 w-6 items-center justify-center rounded-full border border-white/80 bg-[rgba(255,252,245,0.92)] text-[11px] font-semibold leading-none shadow-[0_8px_18px_rgba(48,34,23,0.2)]"
+            style={{
+              left: `${mapPosition.x * 100}%`,
+              top: `${mapPosition.y * 100}%`,
+              color: routeColor,
+              boxShadow: `0 0 0 4px ${routeGlowColor}, 0 8px 18px rgba(48,34,23,0.2)`,
+              transform: "translate(-50%, calc(-50% + 33px))",
+            }}
+            aria-hidden="true"
+          >
+            {index + 1}
+          </span>
+        );
+      })}
+
       <style jsx>{`
-        .recommended-route-line {
+        .theme-route-line {
           opacity: 1;
         }
 
-        .recommended-route-flow {
+        .theme-route-flow {
           opacity: 0;
           stroke-dasharray: 0.085 0.18;
           animation:
-            recommended-route-flow 3600ms linear infinite,
-            recommended-route-flow-in 360ms ease-out 180ms forwards;
+            theme-route-flow 3600ms linear infinite,
+            theme-route-flow-in 360ms ease-out 180ms forwards;
         }
 
-        @keyframes recommended-route-flow {
+        @keyframes theme-route-flow {
           from {
             stroke-dashoffset: 0.265;
           }
@@ -1756,7 +2173,7 @@ function MapRecommendedRouteLayer({ models }: { models: SiteModelSummary[] }) {
           }
         }
 
-        @keyframes recommended-route-flow-in {
+        @keyframes theme-route-flow-in {
           to {
             opacity: 1;
           }
@@ -1770,7 +2187,8 @@ function OverviewMapFrame({
   highlightedModel,
   mapMode,
   models,
-  showRecommendedRoute,
+  activeThemeRoute,
+  visitedModelSlugs,
   children,
 }: OverviewMapFrameProps) {
   const isHeatMode = mapMode === "heat";
@@ -1792,6 +2210,8 @@ function OverviewMapFrame({
             fill
             priority
             unoptimized
+            draggable={false}
+            onDragStart={(event) => event.preventDefault()}
             sizes="100vw"
             className={`select-none object-cover transition-[filter,opacity] duration-500 ${
               isHeatMode ? "brightness-[0.92] saturate-[0.62] contrast-[0.94]" : ""
@@ -1804,9 +2224,13 @@ function OverviewMapFrame({
               highlightedSlug={highlightedModel?.slug}
             />
           ) : null}
-          {showRecommendedRoute ? (
-            <MapRecommendedRouteLayer models={models} />
+          {activeThemeRoute ? (
+            <MapThemeRouteLayer models={models} route={activeThemeRoute} />
           ) : null}
+          <MapVisitedFootprintLayer
+            models={models}
+            visitedModelSlugs={visitedModelSlugs}
+          />
           {highlightedModel ? (
             <MapBuildingLift
               model={highlightedModel}
@@ -1827,8 +2251,12 @@ function MapLabel({
   onPreview,
   onPreviewClear,
   isPreviewed,
+  isVisited,
+  routeOrder,
 }: MapLabelProps) {
   const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
+  const shouldPlaceStampLeft = mapPosition.x > 0.72;
+  const isRouteStop = routeOrder !== undefined;
 
   return (
     <div
@@ -1849,7 +2277,9 @@ function MapLabel({
         className={`group relative border-0 bg-transparent p-0 transition-transform duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
           isPreviewed ? "-translate-y-2 scale-[1.025]" : ""
         }`}
-        aria-label={`查看 ${model.label} 模型`}
+        aria-label={`${isRouteStop ? `主题路线第 ${routeOrder + 1} 站，` : ""}${
+          isVisited ? "已游览，" : ""
+        }查看 ${model.label} 模型`}
         title={`查看 ${model.label}`}
       >
         <span
@@ -1862,8 +2292,12 @@ function MapLabel({
         <span
           className={`pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
-              ? "scale-125 shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
-              : "shadow-[0_0_0_1px_rgba(0,0,0,0.78),0_0_10px_rgba(255,255,255,0.62)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
+              ? "scale-125 border-[#6e3128]/80 bg-[#f3ddbd] shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)]"
+              : isRouteStop
+                ? "border-[#8b462d]/80 bg-[#f4dfbd] shadow-[0_0_0_1.5px_rgba(139,70,45,0.5),0_0_18px_rgba(255,255,255,0.76)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)]"
+              : isVisited
+                ? "border-[#8e3f31]/64 bg-[#f3ddbd] shadow-[0_0_0_1px_rgba(142,63,49,0.38),0_0_10px_rgba(255,255,255,0.42)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)]"
+                : "shadow-[0_0_0_1px_rgba(0,0,0,0.78),0_0_10px_rgba(255,255,255,0.62)] group-hover:scale-125 group-hover:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)] group-focus-visible:scale-125 group-focus-visible:shadow-[0_0_0_1.5px_rgba(0,0,0,0.86),0_0_18px_rgba(255,255,255,0.84)]"
           }`}
           style={{ top: `calc(50% + ${LABEL_DOT_OFFSET}px)` }}
         />
@@ -1871,12 +2305,28 @@ function MapLabel({
           className={`${mapLabelFont.className} relative block whitespace-nowrap text-[clamp(1.7rem,2vw,2.5rem)] leading-none tracking-[0.02em] transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "scale-[1.03] text-[#3a2010]"
-              : "text-[#18110d] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
+              : isRouteStop
+                ? "text-[#5e3324] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
+              : isVisited
+                ? "text-[#6f5948] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
+                : "text-[#18110d] group-hover:scale-[1.03] group-hover:text-[#3a2010] group-focus-visible:scale-[1.03] group-focus-visible:text-[#3a2010]"
           }`}
           style={MAP_LABEL_TEXT_STYLE}
         >
           {model.label}
         </span>
+        {isVisited ? (
+          <span
+            className={`${mapLabelFont.className} pointer-events-none absolute top-[-0.42rem] z-20 flex h-[2.15rem] w-[2.15rem] items-center justify-center rounded-full border-2 border-[#8e3f31]/64 bg-[rgba(255,249,239,0.76)] text-[0.88rem] leading-none tracking-[0.06em] text-[#8e3f31] shadow-[0_5px_12px_rgba(58,36,20,0.14)] ${
+              shouldPlaceStampLeft
+                ? "right-[calc(100%+0.3rem)] rotate-[-8deg]"
+                : "left-[calc(100%+0.3rem)] rotate-[8deg]"
+            }`}
+            aria-hidden="true"
+          >
+            已游
+          </span>
+        ) : null}
       </button>
     </div>
   );
@@ -1890,6 +2340,8 @@ function DirectoryDrawer({
   onSelect,
   onPreview = () => {},
   onPreviewClear = () => {},
+  tourProgress,
+  visitedModelSlugs,
 }: DirectoryDrawerProps) {
   return (
     <>
@@ -1905,7 +2357,11 @@ function DirectoryDrawer({
           type="button"
           onClick={onToggle}
           aria-expanded={isOpen}
-          aria-label="打开建筑目录"
+          aria-label={
+            tourProgress
+              ? `打开建筑目录，已游览 ${tourProgress.visitedCount}/${tourProgress.totalCount}`
+              : "打开建筑目录"
+          }
           className={`${PAPER_PANEL_CLASS} pointer-events-auto group relative inline-flex items-center gap-2 overflow-hidden rounded-[1rem] px-3.5 py-2 backdrop-blur-md transition hover:border-[#4e3b2c]/18 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)]`}
         >
           <span className="pointer-events-none absolute inset-x-3 top-0 h-px bg-[rgba(255,255,255,0.96)]" />
@@ -1915,9 +2371,16 @@ function DirectoryDrawer({
           >
             目录
           </span>
-          <span className="rounded-full border border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.92)] px-2 py-0.5 text-[10px] leading-none tracking-[0.16em] text-[#5c4a3a]">
-            {models.length}
-          </span>
+          {tourProgress ? (
+            <TourProgressBadge
+              progress={tourProgress}
+              className="min-w-[7.2rem] py-0.5"
+            />
+          ) : (
+            <span className="rounded-full border border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.92)] px-2 py-0.5 text-[10px] leading-none tracking-[0.16em] text-[#5c4a3a]">
+              {models.length}
+            </span>
+          )}
         </button>
 
         <aside
@@ -1938,6 +2401,12 @@ function DirectoryDrawer({
               >
                 循图入景
               </h2>
+              {tourProgress ? (
+                <TourProgressBadge
+                  progress={tourProgress}
+                  className="mt-3 w-[min(14rem,100%)]"
+                />
+              ) : null}
             </div>
 
             <button
@@ -1952,41 +2421,63 @@ function DirectoryDrawer({
           <div className="relative overflow-hidden rounded-[1.1rem] border border-[#6b5645]/8 bg-[rgba(255,255,255,0.68)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
             <div className="max-h-[calc(100vh-13rem)] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
               {models.length > 0 ? (
-                models.map((model, index) => (
-                  <button
-                    key={model.slug}
-                    type="button"
-                    onClick={() => onSelect(model.slug)}
-                    onPointerEnter={() => onPreview(model.slug)}
-                    onPointerDown={() => onPreview(model.slug)}
-                    onPointerLeave={onPreviewClear}
-                    onFocus={() => onPreview(model.slug)}
-                    onBlur={onPreviewClear}
-                    className="group flex w-full items-start gap-3 border-t border-[#8f7150]/8 px-4 py-3 text-left transition first:border-t-0 hover:bg-[rgba(250,245,238,0.92)]"
-                  >
-                    <span className="mt-1 shrink-0 text-[10px] leading-none tracking-[0.28em] text-[#a18364]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <p
-                          className={`${mapLabelFont.className} text-[1.28rem] leading-none tracking-[0.03em] text-[#241913] transition group-hover:text-[#3a2a1d]`}
-                        >
-                          {model.label}
+                models.map((model, index) => {
+                  const isVisited = visitedModelSlugs?.has(model.slug) ?? false;
+
+                  return (
+                    <button
+                      key={model.slug}
+                      type="button"
+                      onClick={() => onSelect(model.slug)}
+                      onPointerEnter={() => onPreview(model.slug)}
+                      onPointerDown={() => onPreview(model.slug)}
+                      onPointerLeave={onPreviewClear}
+                      onFocus={() => onPreview(model.slug)}
+                      onBlur={onPreviewClear}
+                      className={`group flex w-full items-start gap-3 border-t border-[#8f7150]/8 px-4 py-3 text-left transition first:border-t-0 hover:bg-[rgba(250,245,238,0.92)] ${
+                        isVisited ? "bg-[rgba(246,236,220,0.72)]" : ""
+                      }`}
+                    >
+                      <span
+                        className={`mt-1 shrink-0 text-[10px] leading-none tracking-[0.28em] ${
+                          isVisited ? "text-[#8e3f31]" : "text-[#a18364]"
+                        }`}
+                      >
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p
+                            className={`${mapLabelFont.className} text-[1.28rem] leading-none tracking-[0.03em] transition group-hover:text-[#3a2a1d] ${
+                              isVisited ? "text-[#6f5948]" : "text-[#241913]"
+                            }`}
+                          >
+                            {model.label}
+                          </p>
+                          <span
+                            className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] leading-none ${
+                              isVisited
+                                ? "border border-[#8e3f31]/28 text-[#8e3f31]"
+                                : "text-[#8c7156]"
+                            }`}
+                          >
+                            {isVisited
+                              ? "已游"
+                              : model.hasModelFile
+                                ? "入景"
+                                : "待补"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[12px] leading-5 text-[#5e4b3a]">
+                          {model.verse}
                         </p>
-                        <span className="mt-1 shrink-0 text-[11px] text-[#8c7156]">
-                          入景
-                        </span>
                       </div>
-                      <p className="mt-1 text-[12px] leading-5 text-[#5e4b3a]">
-                        {model.verse}
-                      </p>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               ) : (
                 <div className="px-4 py-4 text-sm leading-6 text-[#7c5131]">
-                  图录中暂未发现可进入的 `.glb` 建筑模型。
+                  图录中暂未配置导览点。
                 </div>
               )}
             </div>
@@ -1997,16 +2488,173 @@ function DirectoryDrawer({
   );
 }
 
+function ThemeRouteSelectorPanel({
+  models,
+  activeRoute,
+  visitedModelSlugs,
+  onSelectRoute,
+  onClearRoute,
+  onStartRoute,
+}: ThemeRouteSelectorPanelProps) {
+  const activeRouteStops = resolveThemeRouteStops(activeRoute, models);
+  const activeRouteVisitedCount = activeRouteStops.filter((stop) =>
+    visitedModelSlugs.has(stop.slug)
+  ).length;
+  const firstActiveStop = activeRouteStops[0] ?? null;
+  const lastActiveStop = activeRouteStops[activeRouteStops.length - 1] ?? null;
+
+  return (
+    <aside
+      className={`${PAPER_PANEL_CLASS} pointer-events-auto relative w-[min(92vw,24rem)] overflow-hidden rounded-[1.25rem] p-3.5 backdrop-blur-xl sm:p-4`}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,_rgba(255,255,255,0.72)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
+      <div className="relative flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#7b6450]/72">
+            主题游线
+          </p>
+          <h2
+            className={`${mapLabelFont.className} mt-2 text-[1.38rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+          >
+            跟着主题走
+          </h2>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClearRoute}
+          disabled={!activeRoute}
+          aria-label="取消已选主题游线"
+          className={`relative shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-45 ${
+            activeRoute
+              ? "border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.84)] text-[#5a4839] hover:border-[#4d3b2d]/20 hover:bg-[rgba(255,255,255,0.98)]"
+              : "border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.58)] text-[#7b6450]"
+          }`}
+        >
+          取消选择
+        </button>
+      </div>
+
+      <div className="relative mt-3 grid grid-cols-2 gap-2">
+        {THEME_ROUTES.map((route) => {
+          const routeStops = resolveThemeRouteStops(route, models);
+          const visitedCount = routeStops.filter((stop) =>
+            visitedModelSlugs.has(stop.slug)
+          ).length;
+          const isActive = activeRoute?.id === route.id;
+          const accentColor = toRgb(route.accent, 0.9);
+
+          return (
+            <button
+              key={route.id}
+              type="button"
+              onClick={() => onSelectRoute(route.id)}
+              aria-pressed={isActive}
+              className={`group min-h-[4.25rem] w-full rounded-[0.95rem] border px-3 py-2.5 text-left transition ${
+                isActive
+                  ? "bg-[rgba(255,250,241,0.94)]"
+                  : "border-[#6b5645]/8 bg-[rgba(255,255,255,0.62)] hover:border-[#8a6a4d]/18 hover:bg-[rgba(255,250,244,0.9)]"
+              }`}
+              style={
+                isActive
+                  ? {
+                      borderColor: toRgb(route.accent, 0.32),
+                      boxShadow: `0 10px 22px ${toRgb(route.accent, 0.1)}`,
+                    }
+                  : undefined
+              }
+            >
+              <div className="flex min-w-0 flex-col gap-2">
+                <p
+                  className={`${mapLabelFont.className} truncate text-[1.18rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+                >
+                  {route.label}
+                </p>
+                <span
+                  className="w-fit rounded-full border bg-white/76 px-2 py-1 text-[11px] leading-none"
+                  style={{
+                    borderColor: toRgb(route.accent, isActive ? 0.32 : 0.16),
+                    color: accentColor,
+                  }}
+                >
+                  {visitedCount}/{routeStops.length}站
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeRoute ? (
+        <div className="relative mt-3 flex items-center justify-between gap-3 rounded-[0.95rem] border border-[#6b5645]/8 bg-[rgba(255,255,255,0.56)] px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p
+                className={`${mapLabelFont.className} truncate text-[1.08rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+              >
+                {activeRoute.label}
+              </p>
+              <span className="rounded-full border border-[#7a5f42]/12 bg-[rgba(255,255,255,0.72)] px-2 py-0.5 text-[11px] leading-none text-[#7b5138]">
+                {activeRouteVisitedCount}/{activeRouteStops.length}站
+              </span>
+            </div>
+            <p className="mt-1.5 truncate text-[12px] leading-5 text-[#5e4b3a]">
+              {firstActiveStop && lastActiveStop ? (
+                <>
+                  {firstActiveStop.label}
+                  <span className="px-1 text-[#9a8064]">→</span>
+                  {lastActiveStop.label}
+                </>
+              ) : (
+                activeRoute.summary
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onStartRoute}
+            disabled={activeRouteStops.length === 0}
+            className={`${PAPER_BUTTON_CLASS} inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-medium tracking-[0.1em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] disabled:cursor-not-allowed disabled:opacity-45`}
+          >
+            {firstActiveStop ? (
+              <>
+                <span
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                  style={{ backgroundColor: toRgb(activeRoute.accent, 0.9) }}
+                >
+                  1
+                </span>
+                开始
+              </>
+            ) : (
+              "开始"
+            )}
+          </button>
+        </div>
+      ) : (
+        <p className="relative mt-3 rounded-full border border-[#6b5645]/8 bg-[rgba(255,255,255,0.48)] px-3 py-2 text-[12px] leading-none text-[#6b5744]">
+          选择主题后，地图会显示线路和站序。
+        </p>
+      )}
+    </aside>
+  );
+}
+
 function OverviewStage({
   models,
   onSelect,
+  activeThemeRoute,
+  onThemeRouteChange,
   isBackgroundAudioEnabled,
   onBackgroundAudioToggle,
+  tourProgress,
+  visitedModelSlugs,
 }: OverviewStageProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isRouteSelectorOpen, setIsRouteSelectorOpen] = useState(false);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("normal");
-  const [showRecommendedRoute, setShowRecommendedRoute] = useState(false);
+  const routeControlsRef = useRef<HTMLDivElement | null>(null);
   const [introPanelPhase, setIntroPanelPhase] =
     useState<OverviewIntroPanelPhase>(() =>
       hasOverviewIntroPanelBeenShown ? "hidden" : "visible"
@@ -2036,10 +2684,56 @@ function OverviewStage({
     };
   }, [introPanelPhase]);
 
+  useEffect(() => {
+    if (!isRouteSelectorOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const routeControls = routeControlsRef.current;
+
+      if (!routeControls || routeControls.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsRouteSelectorOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsRouteSelectorOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isRouteSelectorOpen]);
+
   const handleSelect = (slug: string) => {
     setIsDrawerOpen(false);
+    setIsRouteSelectorOpen(false);
     onSelect(slug);
   };
+  const handleThemeRouteSelect = (routeId: ThemeRouteId) => {
+    onThemeRouteChange(routeId);
+    setMapMode("normal");
+    setPreviewSlug(null);
+  };
+  const handleThemeRouteStart = () => {
+    const firstStop = resolveThemeRouteStops(activeThemeRoute, models)[0];
+
+    if (!firstStop) {
+      return;
+    }
+
+    handleSelect(firstStop.slug);
+  };
+  const activeRouteStopOrder = getThemeRouteStopOrder(activeThemeRoute);
   const previewModel =
     previewSlug === null
       ? null
@@ -2051,9 +2745,13 @@ function OverviewStage({
         hint: previewModel.overviewHint,
       }
     : {
-        tag: "拙政园",
-        copy: "江南古典园林代表，以水为脉，亭台楼榭与花木山石相映成景。",
-        hint: "",
+        tag: activeThemeRoute ? `【${activeThemeRoute.label}】` : "拙政园",
+        copy: activeThemeRoute
+          ? activeThemeRoute.summary
+          : "江南古典园林代表，以水为脉，亭台楼榭与花木山石相映成景。",
+        hint: activeThemeRoute
+          ? `共 ${resolveThemeRouteStops(activeThemeRoute, models).length} 站`
+          : "",
       };
 
   return (
@@ -2062,7 +2760,8 @@ function OverviewStage({
         highlightedModel={previewModel}
         mapMode={mapMode}
         models={models}
-        showRecommendedRoute={showRecommendedRoute}
+        activeThemeRoute={activeThemeRoute}
+        visitedModelSlugs={visitedModelSlugs}
       >
         {models.map((model) => (
           <MapLabel
@@ -2072,6 +2771,8 @@ function OverviewStage({
             onPreview={setPreviewSlug}
             onPreviewClear={() => setPreviewSlug(null)}
             isPreviewed={previewSlug === model.slug}
+            isVisited={visitedModelSlugs.has(model.slug)}
+            routeOrder={activeRouteStopOrder.get(model.slug)}
           />
         ))}
       </OverviewMapFrame>
@@ -2105,8 +2806,22 @@ function OverviewStage({
         </div>
       ) : null}
 
-      <div className="absolute bottom-4 left-4 z-30 flex flex-col items-start gap-2 sm:bottom-6 sm:left-6">
+      <div
+        ref={routeControlsRef}
+        className="absolute bottom-4 left-4 z-30 flex flex-col items-start gap-2 sm:bottom-6 sm:left-6"
+      >
         {isHeatMode ? <HeatLegendPill /> : null}
+
+        {isRouteSelectorOpen ? (
+          <ThemeRouteSelectorPanel
+            models={models}
+            activeRoute={activeThemeRoute}
+            visitedModelSlugs={visitedModelSlugs}
+            onSelectRoute={handleThemeRouteSelect}
+            onClearRoute={() => onThemeRouteChange(null)}
+            onStartRoute={handleThemeRouteStart}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <BackgroundAudioButton
@@ -2151,13 +2866,16 @@ function OverviewStage({
 
           <button
             type="button"
-            onClick={() => setShowRecommendedRoute((value) => !value)}
-            aria-pressed={showRecommendedRoute}
+            onClick={() => setIsRouteSelectorOpen((value) => !value)}
+            aria-expanded={isRouteSelectorOpen}
+            aria-pressed={Boolean(activeThemeRoute)}
             aria-label={
-              showRecommendedRoute ? "隐藏推荐路线" : "显示推荐路线"
+              activeThemeRoute
+                ? `已选择${activeThemeRoute.label}，打开主题游线`
+                : "打开主题游线"
             }
             className={`${PAPER_BUTTON_CLASS} inline-flex h-11 items-center gap-2 rounded-full px-4 text-[13px] font-medium tracking-[0.12em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:px-[1.125rem] ${
-              showRecommendedRoute
+              activeThemeRoute
                 ? "border-[#8b462d]/25 text-[#5e3324] shadow-[0_14px_28px_rgba(112,70,42,0.14)]"
                 : ""
             }`}
@@ -2166,7 +2884,7 @@ function OverviewStage({
               viewBox="0 0 24 24"
               aria-hidden="true"
               className={`h-[17px] w-[17px] ${
-                showRecommendedRoute ? "text-[#8b462d]" : "text-[#5a4839]"
+                activeThemeRoute ? "text-[#8b462d]" : "text-[#5a4839]"
               }`}
               fill="none"
               stroke="currentColor"
@@ -2179,7 +2897,7 @@ function OverviewStage({
               <path d="M5.5 17.2h.01" />
               <path d="M12 15.4h.01" />
             </svg>
-            <span>推荐路线</span>
+            <span>{activeThemeRoute?.label ?? "主题游线"}</span>
           </button>
         </div>
       </div>
@@ -2192,6 +2910,8 @@ function OverviewStage({
         onSelect={handleSelect}
         onPreview={setPreviewSlug}
         onPreviewClear={() => setPreviewSlug(null)}
+        tourProgress={tourProgress}
+        visitedModelSlugs={visitedModelSlugs}
       />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-[4.75rem] z-20 flex justify-center px-4 sm:bottom-5 sm:px-6">
@@ -2220,8 +2940,11 @@ function SingleModelStage({
   model,
   onSelect,
   onBack,
+  activeThemeRoute,
   isBackgroundAudioEnabled,
   onBackgroundAudioToggle,
+  tourProgress,
+  visitedModelSlugs,
 }: SingleModelStageProps) {
   const introText = normalizeInterpretationText(model.interpretation);
   const detailText = normalizeInterpretationText(model.detail ?? "");
@@ -2232,12 +2955,21 @@ function SingleModelStage({
   const shadowMaterialRef = useRef<ShadowMaterial | null>(null);
   const shadowRadiusRef = useRef(1);
   const [daylightProgress, setDaylightProgress] = useState(0.5);
-  const [viewerState, setViewerState] = useState<ViewerState>({
-    kind: "loading",
-    message: `正在加载 ${model.label}…`,
-  });
+  const [viewerState, setViewerState] = useState<ViewerState>(() =>
+    model.hasModelFile
+      ? {
+          kind: "loading",
+          message: `正在加载 ${model.label}…`,
+        }
+      : {
+          kind: "ready",
+          message: `${model.label} 点位已开放。`,
+        }
+  );
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isInterpretationReady, setIsInterpretationReady] = useState(false);
+  const [isInterpretationReady, setIsInterpretationReady] = useState(
+    () => !model.hasModelFile
+  );
   const [isInterpretationOpen, setIsInterpretationOpen] = useState(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(true);
   const [isGalleryLightboxOpen, setIsGalleryLightboxOpen] = useState(false);
@@ -2287,6 +3019,23 @@ function SingleModelStage({
   const previousModel =
     models[(currentModelIndex - 1 + models.length) % models.length];
   const nextModel = models[(currentModelIndex + 1) % models.length];
+  const activeRouteStops = resolveThemeRouteStops(activeThemeRoute, models);
+  const activeRouteModelIndex = activeRouteStops.findIndex(
+    (item) => item.slug === model.slug
+  );
+  const isModelOnActiveRoute =
+    Boolean(activeThemeRoute) && activeRouteModelIndex >= 0;
+  const shouldUseRouteNavigation =
+    isModelOnActiveRoute && activeRouteStops.length > 1;
+  const previousNavigationModel = shouldUseRouteNavigation
+    ? activeRouteStops[
+        (activeRouteModelIndex - 1 + activeRouteStops.length) %
+          activeRouteStops.length
+      ]
+    : previousModel;
+  const nextNavigationModel = shouldUseRouteNavigation
+    ? activeRouteStops[(activeRouteModelIndex + 1) % activeRouteStops.length]
+    : nextModel;
   const syncDaylightShadow = useCallback((progress: number) => {
     const sunLight = sunLightRef.current;
     const sunTarget = sunTargetRef.current;
@@ -2618,6 +3367,10 @@ function SingleModelStage({
   ]);
 
   useEffect(() => {
+    if (!model.hasModelFile) {
+      return;
+    }
+
     const container = containerRef.current;
 
     if (!container) {
@@ -2956,7 +3709,7 @@ function SingleModelStage({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [model.label, model.slug, syncDaylightShadow]);
+  }, [model.hasModelFile, model.label, model.slug, syncDaylightShadow]);
 
   return (
     <section className="relative h-screen w-full overflow-hidden">
@@ -2976,10 +3729,27 @@ function SingleModelStage({
         className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] transition-[background] duration-500"
         style={{ background: daylightSceneStyle.ground }}
       />
-      <div
-        ref={containerRef}
-        className="absolute inset-0 z-[4] cursor-grab active:cursor-grabbing"
-      />
+      {model.hasModelFile ? (
+        <div
+          ref={containerRef}
+          className="absolute inset-0 z-[4] cursor-grab active:cursor-grabbing"
+        />
+      ) : (
+        <div className="pointer-events-none absolute inset-0 z-[4] flex items-center justify-center px-4">
+          <div
+            className={`${PAPER_PANEL_CLASS} max-w-[min(82vw,28rem)] rounded-[1.5rem] px-6 py-5 text-center backdrop-blur-md`}
+          >
+            <p
+              className={`${mapLabelFont.className} text-[1.5rem] leading-none tracking-[0.04em] text-[#2f2118]`}
+            >
+              模型待补
+            </p>
+            <p className="mt-3 text-sm leading-7 text-[#5e4b3a]">
+              {model.label} 的点位与文案已先加入，GLB 模型和解说音频等待补充。
+            </p>
+          </div>
+        </div>
+      )}
 
       <DirectoryDrawer
         models={models}
@@ -2987,6 +3757,8 @@ function SingleModelStage({
         onToggle={() => setIsDrawerOpen((value) => !value)}
         onClose={() => setIsDrawerOpen(false)}
         onSelect={handleDrawerSelect}
+        tourProgress={tourProgress}
+        visitedModelSlugs={visitedModelSlugs}
       />
 
       <div className="absolute bottom-2 left-4 z-40 flex items-center gap-2 sm:bottom-4 sm:left-6 sm:gap-2.5">
@@ -3017,10 +3789,32 @@ function SingleModelStage({
           onToggle={onBackgroundAudioToggle}
         />
 
+        {isModelOnActiveRoute && activeThemeRoute ? (
+          <div
+            className={`${PAPER_BUTTON_CLASS} hidden h-11 items-center gap-2 rounded-full px-4 text-[12px] text-[#5e4b3a] backdrop-blur-md sm:flex sm:h-12`}
+            aria-label={`${activeThemeRoute.label}第 ${
+              activeRouteModelIndex + 1
+            } 站，共 ${activeRouteStops.length} 站`}
+          >
+            <span
+              className={`${mapLabelFont.className} text-[1rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+            >
+              {activeThemeRoute.shortLabel}
+            </span>
+            <span className="rounded-full border border-[#7a5f42]/12 bg-white/72 px-2 py-0.5 text-[11px] leading-none">
+              {activeRouteModelIndex + 1}/{activeRouteStops.length}
+            </span>
+          </div>
+        ) : null}
+
         <button
           type="button"
-          onClick={() => onSelect(previousModel.slug)}
-          aria-label={`查看上一个模型：${previousModel.label}`}
+          onClick={() => onSelect(previousNavigationModel.slug)}
+          aria-label={
+            shouldUseRouteNavigation
+              ? `查看主题上一站：${previousNavigationModel.label}`
+              : `查看上一个模型：${previousNavigationModel.label}`
+          }
           className={`${PAPER_BUTTON_CLASS} flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:w-12`}
         >
           <svg
@@ -3039,8 +3833,12 @@ function SingleModelStage({
 
         <button
           type="button"
-          onClick={() => onSelect(nextModel.slug)}
-          aria-label={`查看下一个模型：${nextModel.label}`}
+          onClick={() => onSelect(nextNavigationModel.slug)}
+          aria-label={
+            shouldUseRouteNavigation
+              ? `查看主题下一站：${nextNavigationModel.label}`
+              : `查看下一个模型：${nextNavigationModel.label}`
+          }
           className={`${PAPER_BUTTON_CLASS} flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:w-12`}
         >
           <svg
@@ -3058,8 +3856,8 @@ function SingleModelStage({
         </button>
       </div>
 
-      <div className="absolute left-4 top-4 z-10 flex w-[min(19.75rem,calc(100vw-2rem))] flex-col gap-4 sm:left-6 sm:top-6 sm:w-[19.75rem]">
-        <div className="w-full">
+      <div className="absolute bottom-[4.75rem] left-4 top-4 z-10 flex min-h-0 w-[min(19.75rem,calc(100vw-2rem))] flex-col gap-4 sm:bottom-[5rem] sm:left-6 sm:top-6 sm:w-[19.75rem]">
+        <div className="w-full shrink-0">
           <div
             className={`${PAPER_PANEL_CLASS} pointer-events-none rounded-[1.5rem] pl-4 pr-6 py-[1.25rem] backdrop-blur-xl sm:pl-[1.15rem] sm:pr-[1.65rem] sm:py-[1.3rem]`}
           >
@@ -3076,12 +3874,17 @@ function SingleModelStage({
             <p className="mt-3.5 max-w-[15rem] text-sm leading-[1.78] text-[#5e4b3a] sm:max-w-[15.4rem]">
               {model.summary}
             </p>
+            {isModelOnActiveRoute && activeThemeRoute ? (
+              <p className="mt-3 inline-flex rounded-full border border-[#7a5f42]/12 bg-[rgba(255,255,255,0.62)] px-2.5 py-1 text-[11px] leading-none tracking-[0.08em] text-[#7b5138]">
+                {activeThemeRoute.label} · 第 {activeRouteModelIndex + 1} 站
+              </p>
+            ) : null}
           </div>
         </div>
 
-        <div className="w-full">
+        <div className="min-h-0 w-full flex-1">
           {isInterpretationReady && isInterpretationOpen ? (
-            <div className="relative w-full">
+            <div className="relative flex h-full min-h-0 w-full">
               <button
                 type="button"
                 onClick={() => setIsInterpretationOpen(false)}
@@ -3103,7 +3906,7 @@ function SingleModelStage({
               </button>
 
               <aside
-                className={`${PAPER_PANEL_CLASS} relative w-full overflow-hidden rounded-[1.5rem] px-4 py-4 backdrop-blur-xl sm:px-5 sm:py-5`}
+                className={`${PAPER_PANEL_CLASS} relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[1.5rem] px-4 py-4 backdrop-blur-xl sm:px-5 sm:py-5`}
               >
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,_rgba(255,255,255,0.7)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
                 <div className="relative flex min-w-0 items-start justify-between gap-3">
@@ -3211,7 +4014,7 @@ function SingleModelStage({
                   />
                 ) : null}
 
-                <div className="paper-scrollarea relative mt-4 max-h-[min(42vh,24rem)] overflow-y-auto pr-1 sm:max-h-[calc(100vh-22rem)]">
+                <div className="paper-scrollarea relative mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
                   <div>
                     {renderInterpretationContent(
                       displayedInterpretationText,
@@ -3353,6 +4156,35 @@ export default function ModelViewer({
   const backgroundAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isBackgroundAudioEnabled, setIsBackgroundAudioEnabled] =
     useState(true);
+  const [activeThemeRouteId, setActiveThemeRouteId] =
+    useState<ThemeRouteId | null>(null);
+  const modelSlugSet = useMemo(
+    () => new Set(models.map((model) => model.slug)),
+    [models]
+  );
+  const activeThemeRoute = useMemo(
+    () => getThemeRouteById(activeThemeRouteId),
+    [activeThemeRouteId]
+  );
+  const [visitedModelSlugs, setVisitedModelSlugs] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [hasLoadedVisitedModelSlugs, setHasLoadedVisitedModelSlugs] =
+    useState(false);
+  const tourProgress = useMemo<TourProgress>(() => {
+    let visitedCount = 0;
+
+    for (const model of models) {
+      if (visitedModelSlugs.has(model.slug)) {
+        visitedCount += 1;
+      }
+    }
+
+    return {
+      visitedCount,
+      totalCount: models.length,
+    };
+  }, [models, visitedModelSlugs]);
 
   const playBackgroundAudio = useCallback(() => {
     const audio = backgroundAudioRef.current;
@@ -3389,6 +4221,47 @@ export default function ModelViewer({
   useEffect(() => {
     displayedSlugRef.current = displayedSlug;
   }, [displayedSlug]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setVisitedModelSlugs(readVisitedSiteModelSlugs(modelSlugSet));
+      setHasLoadedVisitedModelSlugs(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [modelSlugSet]);
+
+  useEffect(() => {
+    if (
+      !hasLoadedVisitedModelSlugs ||
+      displayedSlug === null ||
+      !modelSlugSet.has(displayedSlug)
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setVisitedModelSlugs((currentSlugs) => {
+        if (currentSlugs.has(displayedSlug)) {
+          return currentSlugs;
+        }
+
+        const nextSlugs = new Set(currentSlugs);
+        nextSlugs.add(displayedSlug);
+        return nextSlugs;
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [displayedSlug, hasLoadedVisitedModelSlugs, modelSlugSet]);
+
+  useEffect(() => {
+    if (!hasLoadedVisitedModelSlugs) {
+      return;
+    }
+
+    writeVisitedSiteModelSlugs(visitedModelSlugs);
+  }, [hasLoadedVisitedModelSlugs, visitedModelSlugs]);
 
   useEffect(() => {
     const audio = backgroundAudioRef.current;
@@ -3587,15 +4460,22 @@ export default function ModelViewer({
           model={selectedModel}
           onSelect={runInkTransition}
           onBack={() => runInkTransition(null)}
+          activeThemeRoute={activeThemeRoute}
           isBackgroundAudioEnabled={isBackgroundAudioEnabled}
           onBackgroundAudioToggle={handleBackgroundAudioToggle}
+          tourProgress={tourProgress}
+          visitedModelSlugs={visitedModelSlugs}
         />
       ) : (
         <OverviewStage
           models={models}
           onSelect={runInkTransition}
+          activeThemeRoute={activeThemeRoute}
+          onThemeRouteChange={setActiveThemeRouteId}
           isBackgroundAudioEnabled={isBackgroundAudioEnabled}
           onBackgroundAudioToggle={handleBackgroundAudioToggle}
+          tourProgress={tourProgress}
+          visitedModelSlugs={visitedModelSlugs}
         />
       )}
 
