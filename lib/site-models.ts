@@ -41,6 +41,7 @@ export type SiteModelPicture = {
 
 export type SiteModelSummary = SiteModelRecord & {
   fileName: string;
+  hasModelFile: boolean;
   pictures: SiteModelPicture[];
 };
 
@@ -73,12 +74,12 @@ const SITE_MODEL_PICTURE_EXTENSIONS = new Set([
 const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
   {
     slug: "linglongguan",
-    mapPosition: { x: 0.807, y: 0.7078 },
+    mapPosition: { x: 0.807, y: 0.684 },
     mapSize: { width: 0.056, height: 0.05 },
   },
   {
     slug: "tingyuxuan",
-    mapPosition: { x: 0.854, y: 0.7766 },
+    mapPosition: { x: 0.854, y: 0.752 },
     mapSize: { width: 0.068, height: 0.05 },
   },
   {
@@ -87,9 +88,29 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     mapSize: { width: 0.064, height: 0.042 },
   },
   {
+    slug: "daishuangting",
+    mapPosition: { x: 0.741, y: 0.354 },
+    mapSize: { width: 0.062, height: 0.042 },
+  },
+  {
+    slug: "wuzhuyouju",
+    mapPosition: { x: 0.872, y: 0.428 },
+    mapSize: { width: 0.078, height: 0.046 },
+  },
+  {
+    slug: "haitangchunwu",
+    mapPosition: { x: 0.868, y: 0.626 },
+    mapSize: { width: 0.082, height: 0.046 },
+  },
+  {
     slug: "xiaofeihong",
     mapPosition: { x: 0.5515, y: 0.7352 },
     mapSize: { width: 0.05, height: 0.036 },
+  },
+  {
+    slug: "nanxuan",
+    mapPosition: { x: 0.596, y: 0.626 },
+    mapSize: { width: 0.052, height: 0.038 },
   },
   {
     slug: "xiangzhou",
@@ -107,9 +128,24 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     mapSize: { width: 0.056, height: 0.05 },
   },
   {
+    slug: "daoyinglou",
+    mapPosition: { x: 0.257, y: 0.264 },
+    mapSize: { width: 0.064, height: 0.052 },
+  },
+  {
     slug: "yushuitongzuoxuan",
     mapPosition: { x: 0.2613, y: 0.5238 },
     mapSize: { width: 0.09, height: 0.042 },
+  },
+  {
+    slug: "sanshiliuyuanyangguan",
+    mapPosition: { x: 0.259, y: 0.693 },
+    mapSize: { width: 0.094, height: 0.044 },
+  },
+  {
+    slug: "liuyinluqu",
+    mapPosition: { x: 0.358, y: 0.501 },
+    mapSize: { width: 0.07, height: 0.04 },
   },
   {
     slug: "jianshanlou",
@@ -138,12 +174,12 @@ const DEFAULT_MAP_SIZE: MapSize = {
 };
 
 const DEFAULT_COPY_FALLBACKS = {
-  summary: "根据文件名识别出的单体模型。",
+  summary: "根据文件名识别出的园林节点。",
   verse: "尚待题咏，留与后来人。",
-  interpretation: "此处模型尚未补入对应解说。",
+  interpretation: "此处园林节点可结合现场景观继续完善解说。",
   overviewMeta: "",
-  overviewTag: "【待补】",
-  overviewCopy: "此处模型尚未补入导览文案。",
+  overviewTag: "【园景】",
+  overviewCopy: "此处园林节点已纳入导览图。",
   overviewHint: "轻触可进入模型页面查看。",
 } satisfies Omit<SiteModelCopy, "label">;
 
@@ -319,11 +355,16 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".glb"))
     .map((entry) => entry.name.slice(0, -4));
   const discoveredSlugSet = new Set(discoveredSlugs);
-  const picturesBySlug = await getSiteModelPicturesBySlug(discoveredSlugs);
+  const configuredSlugs = SITE_MODEL_PLACEMENTS.map((placement) => placement.slug);
+  const unknownSlugs = discoveredSlugs
+    .filter((slug) => !placementBySlug.has(slug))
+    .sort((left, right) => left.localeCompare(right));
+  const picturesBySlug = await getSiteModelPicturesBySlug([
+    ...configuredSlugs,
+    ...unknownSlugs,
+  ]);
 
-  const knownModels = SITE_MODEL_PLACEMENTS.filter((placement) =>
-    discoveredSlugSet.has(placement.slug)
-  ).map((placement) => ({
+  const knownModels = SITE_MODEL_PLACEMENTS.map((placement) => ({
     ...toSiteModelRecord(
       placement.slug,
       copyBySlug.get(placement.slug),
@@ -331,12 +372,9 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
       placement.mapSize
     ),
     fileName: toFileName(placement.slug),
+    hasModelFile: discoveredSlugSet.has(placement.slug),
     pictures: picturesBySlug.get(placement.slug) ?? [],
   }));
-
-  const unknownSlugs = discoveredSlugs
-    .filter((slug) => !placementBySlug.has(slug))
-    .sort((left, right) => left.localeCompare(right));
 
   const unknownModels = unknownSlugs.map((slug, index) => ({
     ...toSiteModelRecord(
@@ -349,6 +387,7 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
       }
     ),
     fileName: toFileName(slug),
+    hasModelFile: true,
     pictures: picturesBySlug.get(slug) ?? [],
   }));
 
@@ -384,6 +423,7 @@ export async function getSiteModelAsset(
       placement?.mapSize ?? DEFAULT_MAP_SIZE
     ),
     fileName: toFileName(slug),
+    hasModelFile: true,
     pictures,
     filePath,
   };
