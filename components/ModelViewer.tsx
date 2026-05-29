@@ -42,6 +42,8 @@ type OverviewStageProps = {
   onSelect: (slug: string) => void;
   activeThemeRoute: ThemeRoute | null;
   onThemeRouteChange: (routeId: ThemeRouteId | null) => void;
+  isRouteAccessPanelExpanded: boolean;
+  onRouteAccessPanelExpandedChange: (isExpanded: boolean) => void;
   isBackgroundAudioEnabled: boolean;
   onBackgroundAudioToggle: () => void;
   tourProgress: TourProgress;
@@ -2983,6 +2985,8 @@ function OverviewStage({
   onSelect,
   activeThemeRoute,
   onThemeRouteChange,
+  isRouteAccessPanelExpanded,
+  onRouteAccessPanelExpandedChange,
   isBackgroundAudioEnabled,
   onBackgroundAudioToggle,
   tourProgress,
@@ -2990,8 +2994,6 @@ function OverviewStage({
 }: OverviewStageProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isRouteSelectorOpen, setIsRouteSelectorOpen] = useState(false);
-  const [isRouteAccessPanelExpanded, setIsRouteAccessPanelExpanded] =
-    useState(true);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("normal");
   const routeControlsRef = useRef<HTMLDivElement | null>(null);
@@ -3060,8 +3062,11 @@ function OverviewStage({
     onSelect(slug);
   };
   const handleThemeRouteSelect = (routeId: ThemeRouteId) => {
+    if (activeThemeRoute?.id !== routeId) {
+      onRouteAccessPanelExpandedChange(true);
+    }
+
     onThemeRouteChange(routeId);
-    setIsRouteAccessPanelExpanded(true);
     setMapMode("normal");
     setPreviewSlug(null);
   };
@@ -3124,7 +3129,7 @@ function OverviewStage({
           route={activeThemeRoute}
           isExpanded={isRouteAccessPanelExpanded}
           onToggleExpanded={() =>
-            setIsRouteAccessPanelExpanded((value) => !value)
+            onRouteAccessPanelExpandedChange(!isRouteAccessPanelExpanded)
           }
         />
       ) : null}
@@ -4510,6 +4515,8 @@ export default function ModelViewer({
     useState(true);
   const [activeThemeRouteId, setActiveThemeRouteId] =
     useState<ThemeRouteId | null>(null);
+  const [isRouteAccessPanelExpanded, setIsRouteAccessPanelExpanded] =
+    useState(true);
   const modelSlugSet = useMemo(
     () => new Set(models.map((model) => model.slug)),
     [models]
@@ -4824,6 +4831,8 @@ export default function ModelViewer({
           onSelect={runInkTransition}
           activeThemeRoute={activeThemeRoute}
           onThemeRouteChange={setActiveThemeRouteId}
+          isRouteAccessPanelExpanded={isRouteAccessPanelExpanded}
+          onRouteAccessPanelExpandedChange={setIsRouteAccessPanelExpanded}
           isBackgroundAudioEnabled={isBackgroundAudioEnabled}
           onBackgroundAudioToggle={handleBackgroundAudioToggle}
           tourProgress={tourProgress}
