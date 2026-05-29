@@ -5,6 +5,7 @@ import { Ma_Shan_Zheng } from "next/font/google";
 import {
   type CSSProperties,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   startTransition,
   useCallback,
   useEffect,
@@ -12,7 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { SiteModelSummary } from "@/lib/site-models";
+import type { SiteModelPicture, SiteModelSummary } from "@/lib/site-models";
 import type {
   DirectionalLight,
   Material,
@@ -80,6 +81,8 @@ type DirectoryDrawerProps = {
 type InkTransitionPhase = "covering" | "revealing" | "hidden";
 type InkTransitionKind = "initial" | "switch";
 type MapMode = "normal" | "heat";
+type InterpretationMode = "intro" | "detail";
+type OverviewIntroPanelPhase = "visible" | "leaving" | "hidden";
 
 type SiteModelHeatData = {
   value: number;
@@ -108,6 +111,38 @@ type BackgroundAudioButtonProps = {
   className?: string;
 };
 
+type BuildingGalleryPanelProps = {
+  model: SiteModelSummary;
+  pictures: SiteModelPicture[];
+  currentIndex: number;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onExpand: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onSelect: (index: number) => void;
+};
+
+type BuildingGalleryLightboxProps = {
+  model: SiteModelSummary;
+  pictures: SiteModelPicture[];
+  currentIndex: number;
+  isOpen: boolean;
+  rotation: number;
+  scale: number;
+  pan: NormalizedMapPoint;
+  onClose: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onPanChange: (pan: NormalizedMapPoint) => void;
+  onSelect: (index: number) => void;
+};
+
 const FALLBACK_MAP_POSITION = { x: 0.5, y: 0.93 };
 const LOCATION_IMAGE_WIDTH = 2038;
 const LOCATION_IMAGE_HEIGHT = 1280;
@@ -118,11 +153,13 @@ const MODEL_CAMERA_DISTANCE_MULTIPLIER = 0.86;
 const INTERPRETATION_TYPE_INTERVAL_MS = 58;
 const NARRATION_AUDIO_DIRECTORY = "/audio";
 const NARRATION_AUDIO_EXTENSIONS = ["mp3", "m4a", "wav", "ogg"] as const;
-const BACKGROUND_AUDIO_SOURCE = "/audio/backgroud.flac";
+const BACKGROUND_AUDIO_SOURCE = "/audio/background.flac";
 const BACKGROUND_AUDIO_VOLUME = 0.36;
 const INK_TRANSITION_INITIAL_HOLD_MS = 320;
 const INK_TRANSITION_COVER_MS = 720;
 const INK_TRANSITION_REVEAL_MS = 1160;
+const OVERVIEW_INTRO_PANEL_HOLD_MS = 2600;
+const OVERVIEW_INTRO_PANEL_SLIDE_MS = 1500;
 const mapLabelFont = Ma_Shan_Zheng({
   weight: "400",
   display: "swap",
@@ -139,7 +176,10 @@ const PAPER_PANEL_CLASS =
   "border border-[#65513f]/10 bg-[linear-gradient(180deg,_rgba(255,255,252,0.95)_0%,_rgba(247,243,236,0.98)_100%)] shadow-[0_24px_56px_rgba(72,51,32,0.16)]";
 const PAPER_BUTTON_CLASS =
   "border border-[#4d3b2d]/10 bg-[linear-gradient(180deg,_rgba(255,255,253,0.96)_0%,_rgba(247,243,236,0.98)_100%)] text-[#2f2118] shadow-[0_14px_28px_rgba(73,52,34,0.12)]";
+const JADE_BUTTON_CLASS =
+  "shrink-0 items-center justify-center rounded-full border border-[#7b6247]/16 bg-[radial-gradient(circle_at_38%_30%,_rgba(255,255,255,0.96)_0%,_rgba(248,243,235,0.9)_36%,_rgba(217,202,181,0.82)_100%)] text-[#5a4839] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_6px_14px_rgba(45,31,20,0.12)] transition hover:border-[#6f563d]/28 hover:bg-[radial-gradient(circle_at_38%_30%,_rgba(255,255,255,1)_0%,_rgba(250,246,240,0.98)_38%,_rgba(226,211,190,0.92)_100%)] disabled:cursor-not-allowed disabled:opacity-45";
 const MODEL_ROUTE_PREFIX = "/models";
+let hasOverviewIntroPanelBeenShown = false;
 
 type RgbColor = readonly [number, number, number];
 
@@ -242,6 +282,27 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     color: [68, 165, 99],
     radius: 0.128,
     opacity: 0.5,
+  },
+  fucuige: {
+    value: 76,
+    level: "中热",
+    color: [229, 184, 45],
+    radius: 0.136,
+    opacity: 0.54,
+  },
+  yushuitongzuoxuan: {
+    value: 80,
+    level: "中热",
+    color: [229, 184, 45],
+    radius: 0.146,
+    opacity: 0.58,
+  },
+  tingyuxuan: {
+    value: 74,
+    level: "温和",
+    color: [68, 165, 99],
+    radius: 0.132,
+    opacity: 0.52,
   },
   yulantang: {
     value: 68,
@@ -618,6 +679,483 @@ function BackgroundAudioButton({
   );
 }
 
+function HeatLegendPill() {
+  return (
+    <div
+      className={`${PAPER_BUTTON_CLASS} pointer-events-none flex h-11 w-[min(13.75rem,calc(100vw-2rem))] items-center gap-3 rounded-full px-3.5 backdrop-blur-md sm:h-12 sm:w-[15rem] sm:px-4`}
+      aria-label="人气颜色说明"
+    >
+      <span className="shrink-0 text-[11px] font-semibold tracking-[0.14em] text-[#3e332a]">
+        人气
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="h-2 rounded-full bg-[linear-gradient(90deg,_#44a563_0%,_#e5b82d_42%,_#e86f2a_70%,_#d62d2a_100%)] shadow-[inset_0_1px_2px_rgba(30,24,18,0.16)]" />
+        <div className="mt-1 flex justify-between text-[9px] font-semibold leading-none tracking-[0.08em] text-[#5a4839] sm:text-[10px]">
+          <span>清静</span>
+          <span>适中</span>
+          <span>热门</span>
+          <span>拥挤</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuildingGalleryPanel({
+  model,
+  pictures,
+  currentIndex,
+  isOpen,
+  onOpen,
+  onClose,
+  onExpand,
+  onPrevious,
+  onNext,
+  onSelect,
+}: BuildingGalleryPanelProps) {
+  const pictureCount = pictures.length;
+  const activePicture = pictures[currentIndex] ?? pictures[0];
+  const displayIndex = Math.min(currentIndex + 1, pictureCount);
+
+  if (!activePicture) {
+    return null;
+  }
+
+  return (
+    <div className="absolute right-4 top-[10.5rem] z-10 w-[min(19rem,calc(100vw-2rem))] sm:right-6 sm:top-[5.5rem] sm:w-[22.5rem] lg:w-[26rem]">
+      {isOpen ? (
+        <div className="relative w-full">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="收起园影相册"
+            className={`${PAPER_BUTTON_CLASS} absolute right-3 -top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:left-auto sm:right-full sm:top-3 sm:mr-3`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="h-[18px] w-[18px] text-[#5a4839]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </button>
+
+          <aside
+            className={`${PAPER_PANEL_CLASS} relative w-full overflow-hidden rounded-[1.5rem] px-4 py-4 backdrop-blur-xl sm:px-5 sm:py-5`}
+          >
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,_rgba(255,255,255,0.7)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
+            <div className="relative flex items-center justify-between gap-3">
+              <h3
+                className={`${mapLabelFont.className} shrink-0 text-[1.52rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+              >
+                园影相册
+              </h3>
+              <span className="shrink-0 rounded-full border border-[#4d3b2d]/10 bg-[rgba(255,255,255,0.68)] px-2.5 py-1 text-[11px] font-medium leading-none tracking-[0.12em] text-[#6b5645]">
+                {String(displayIndex).padStart(2, "0")} /{" "}
+                {String(pictureCount).padStart(2, "0")}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label={`大屏查看 ${model.label} 相册第${displayIndex}张`}
+              className="relative mt-4 block h-[12rem] w-full overflow-hidden rounded-[1.1rem] border border-[#6b5645]/10 bg-[linear-gradient(180deg,_rgba(236,226,213,0.56)_0%,_rgba(248,244,238,0.9)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.86)] transition hover:border-[#4d3b2d]/22 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_16px_28px_rgba(72,51,32,0.12)] sm:h-[17.5rem] lg:h-[21rem]"
+            >
+              <Image
+                key={activePicture.src}
+                src={activePicture.src}
+                alt={`${model.label}相册第${displayIndex}张`}
+                fill
+                sizes="(min-width: 1024px) 26rem, (min-width: 640px) 22.5rem, 19rem"
+                className="object-contain p-2"
+              />
+              <span className="pointer-events-none absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full border border-[#4d3b2d]/12 bg-[rgba(255,255,255,0.88)] text-[#5a4839] shadow-[0_8px_18px_rgba(72,51,32,0.12)]">
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="h-[17px] w-[17px]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M8 4H4v4" />
+                  <path d="M4 4l5.5 5.5" />
+                  <path d="M16 20h4v-4" />
+                  <path d="M20 20l-5.5-5.5" />
+                </svg>
+              </span>
+            </button>
+
+            <div className="relative mt-3 flex h-9 items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={onPrevious}
+                disabled={pictureCount <= 1}
+                aria-label="查看上一张图片"
+                className={`${PAPER_BUTTON_CLASS} flex h-9 w-9 shrink-0 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="h-4 w-4 text-[#5a4839]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+
+              <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden">
+                {pictures.map((picture, index) => (
+                  <button
+                    key={picture.src}
+                    type="button"
+                    onClick={() => onSelect(index)}
+                    aria-label={`查看第 ${index + 1} 张图片`}
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full border transition ${
+                      index === currentIndex
+                        ? "border-[#5a4839] bg-[#5a4839]"
+                        : "border-[#8c7156]/34 bg-white/72 hover:border-[#5a4839]/62"
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={pictureCount <= 1}
+                aria-label="查看下一张图片"
+                className={`${PAPER_BUTTON_CLASS} flex h-9 w-9 shrink-0 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="h-4 w-4 text-[#5a4839]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            </div>
+          </aside>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="展开园影相册"
+          className={`${PAPER_BUTTON_CLASS} ml-auto flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)]`}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="h-[18px] w-[18px] text-[#5a4839]"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BuildingGalleryLightbox({
+  model,
+  pictures,
+  currentIndex,
+  isOpen,
+  rotation,
+  scale,
+  pan,
+  onClose,
+  onPrevious,
+  onNext,
+  onRotateLeft,
+  onRotateRight,
+  onZoomIn,
+  onZoomOut,
+  onPanChange,
+  onSelect,
+}: BuildingGalleryLightboxProps) {
+  const pictureCount = pictures.length;
+  const activePicture = pictures[currentIndex] ?? pictures[0];
+  const displayIndex = Math.min(currentIndex + 1, pictureCount);
+  const zoomPercent = Math.round(scale * 100);
+
+  if (!isOpen || !activePicture) {
+    return null;
+  }
+
+  const handleDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (scale <= 1) {
+      return;
+    }
+
+    const originPan = pan;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    const target = event.currentTarget;
+
+    target.setPointerCapture(event.pointerId);
+
+    const handleDragMove = (moveEvent: PointerEvent) => {
+      onPanChange({
+        x: originPan.x + moveEvent.clientX - originX,
+        y: originPan.y + moveEvent.clientY - originY,
+      });
+    };
+
+    const handleDragEnd = () => {
+      target.removeEventListener("pointermove", handleDragMove);
+      target.removeEventListener("pointerup", handleDragEnd);
+      target.removeEventListener("pointercancel", handleDragEnd);
+    };
+
+    target.addEventListener("pointermove", handleDragMove);
+    target.addEventListener("pointerup", handleDragEnd);
+    target.addEventListener("pointercancel", handleDragEnd);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-[rgba(18,14,10,0.84)] px-4 py-4 backdrop-blur-xl sm:px-6 sm:py-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${model.label}园影相册大屏预览`}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="关闭大屏相册"
+        className={`${JADE_BUTTON_CLASS} absolute right-4 top-4 z-10 flex h-11 w-11 sm:right-6 sm:top-6`}
+      >
+        <span className="pointer-events-none absolute inset-[6px] rounded-full border border-[#8c7156]/14" />
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className="relative h-[18px] w-[18px]"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M6 6l12 12" />
+          <path d="M18 6 6 18" />
+        </svg>
+      </button>
+
+      <div className="mx-auto flex h-full max-w-[92rem] flex-col gap-4">
+        <div className="flex min-h-0 flex-1 items-center gap-3 pt-12 sm:gap-4 sm:pt-14">
+          <button
+            type="button"
+            onClick={onPrevious}
+            disabled={pictureCount <= 1}
+            aria-label="查看上一张图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-11 w-11 sm:h-12 sm:w-12`}
+          >
+            <span className="pointer-events-none absolute inset-[6px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+
+          <div
+            className={`relative min-h-0 flex-1 self-stretch overflow-hidden rounded-[1.35rem] border border-white/18 bg-[rgba(250,246,240,0.08)] shadow-[0_24px_72px_rgba(0,0,0,0.28)] ${
+              scale > 1 ? "cursor-grab active:cursor-grabbing" : ""
+            }`}
+            onPointerDown={handleDragStart}
+          >
+            <div
+              className="absolute inset-0 transition-transform duration-300 ease-[cubic-bezier(0.16,0.84,0.22,1)]"
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scale(${scale})`,
+              }}
+            >
+              <Image
+                key={activePicture.src}
+                src={activePicture.src}
+                alt={`${model.label}相册第${displayIndex}张大屏预览`}
+                fill
+                sizes="100vw"
+                draggable={false}
+                className="select-none object-contain p-2 sm:p-4"
+                priority
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={pictureCount <= 1}
+            aria-label="查看下一张图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-11 w-11 sm:h-12 sm:w-12`}
+          >
+            <span className="pointer-events-none absolute inset-[6px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="mx-auto flex h-11 max-w-[min(94vw,56rem)] items-center justify-center rounded-full border border-white/18 bg-[rgba(255,255,255,0.84)] px-2 py-1.5 backdrop-blur-md sm:h-12">
+          <button
+            type="button"
+            onClick={onRotateLeft}
+            aria-label="逆时针旋转图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-8 w-8 sm:h-9 sm:w-9`}
+          >
+            <span className="pointer-events-none absolute inset-[5px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-[17px] w-[17px]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 4 4 8l4 4" />
+              <path d="M5 8h8a6 6 0 1 1-4.24 10.24" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            onClick={onZoomOut}
+            aria-label="缩小图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-8 w-8 sm:h-9 sm:w-9`}
+          >
+            <span className="pointer-events-none absolute inset-[5px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-[17px] w-[17px]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 12h12" />
+            </svg>
+          </button>
+
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-2 sm:px-3">
+            <span className="shrink-0 text-[11px] font-medium tracking-[0.14em] text-[#5a4839]">
+              {String(displayIndex).padStart(2, "0")} /{" "}
+              {String(pictureCount).padStart(2, "0")}
+            </span>
+            <span className="hidden shrink-0 text-[10px] font-medium tracking-[0.12em] text-[#8c7156] sm:inline">
+              {zoomPercent}%
+            </span>
+            <div className="flex min-w-0 flex-wrap justify-center gap-1.5 sm:gap-2">
+              {pictures.map((picture, index) => (
+                <button
+                  key={picture.src}
+                  type="button"
+                  onClick={() => onSelect(index)}
+                  aria-label={`大屏查看第 ${index + 1} 张图片`}
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full border transition ${
+                    index === currentIndex
+                      ? "border-[#5a4839] bg-[#5a4839]"
+                      : "border-[#8c7156]/34 bg-white/72 hover:border-[#5a4839]/62"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onZoomIn}
+            aria-label="放大图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-8 w-8 sm:h-9 sm:w-9`}
+          >
+            <span className="pointer-events-none absolute inset-[5px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-[17px] w-[17px]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 6v12" />
+              <path d="M6 12h12" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            onClick={onRotateRight}
+            aria-label="顺时针旋转图片"
+            className={`${JADE_BUTTON_CLASS} relative flex h-8 w-8 sm:h-9 sm:w-9`}
+          >
+            <span className="pointer-events-none absolute inset-[5px] rounded-full border border-[#8c7156]/14" />
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="relative h-[17px] w-[17px]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m16 4 4 4-4 4" />
+              <path d="M19 8h-8a6 6 0 1 0 4.24 10.24" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function toModelRoutePath(slug: string | null) {
   return slug ? `${MODEL_ROUTE_PREFIX}/${encodeURIComponent(slug)}` : "/";
 }
@@ -644,6 +1182,39 @@ function getSlugFromRoutePath(pathname: string, models: SiteModelSummary[]) {
   return models.some((model) => model.slug === slug) ? slug : null;
 }
 
+function normalizeInterpretationText(text: string) {
+  return text.replace(/\n\s*\n+/g, "\n");
+}
+
+function renderInlineMarkdownText(text: string) {
+  const parts: ReactNode[] = [];
+  const boldPattern = /\*\*([^*]+)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    parts.push(
+      <strong
+        key={`bold-${match.index}`}
+        className="font-semibold text-[#2f2118]"
+      >
+        {match[1]}
+      </strong>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 function renderInterpretationContent(
   text: string,
   showCursor: boolean
@@ -652,6 +1223,7 @@ function renderInterpretationContent(
 
   return lines.map((line, index) => {
     const headingMatch = line.match(/^(【[^】]+】)\s*(.*)$/);
+    const markdownHeadingMatch = line.match(/^\*\*([^*]+)\*\*[：:]?\s*$/);
     const isLastLine = index === lines.length - 1;
     const cursor = showCursor && isLastLine ? (
       <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#8c7156] align-[-2px]" />
@@ -669,6 +1241,28 @@ function renderInterpretationContent(
       );
     }
 
+    if (/^-{3,}$/.test(line.trim())) {
+      return (
+        <div
+          key={`line-${index}`}
+          aria-hidden="true"
+          className="my-4 h-px bg-[#8c7156]/18"
+        />
+      );
+    }
+
+    if (markdownHeadingMatch) {
+      return (
+        <p
+          key={`line-${index}`}
+          className={`${index === 0 ? "" : "mt-3"} text-[14px] font-semibold leading-8 text-[#2f2118] sm:text-[15px]`}
+        >
+          {markdownHeadingMatch[1]}
+          {cursor}
+        </p>
+      );
+    }
+
     return (
       <p
         key={`line-${index}`}
@@ -679,10 +1273,12 @@ function renderInterpretationContent(
             <strong className="font-semibold text-[#2f2118]">
               {headingMatch[1]}
             </strong>
-            {headingMatch[2] ? ` ${headingMatch[2]}` : null}
+            {headingMatch[2] ? (
+              <> {renderInlineMarkdownText(headingMatch[2])}</>
+            ) : null}
           </>
         ) : (
-          line
+          renderInlineMarkdownText(line)
         )}
         {cursor}
       </p>
@@ -1411,7 +2007,34 @@ function OverviewStage({
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("normal");
   const [showRecommendedRoute, setShowRecommendedRoute] = useState(false);
+  const [introPanelPhase, setIntroPanelPhase] =
+    useState<OverviewIntroPanelPhase>(() =>
+      hasOverviewIntroPanelBeenShown ? "hidden" : "visible"
+    );
+  const isIntroPanelVisible = introPanelPhase !== "hidden";
+  const isIntroPanelLeaving = introPanelPhase === "leaving";
+  const isIntroPanelFullyVisible = introPanelPhase === "visible";
   const isHeatMode = mapMode === "heat";
+
+  useEffect(() => {
+    if (introPanelPhase !== "visible") {
+      return;
+    }
+
+    hasOverviewIntroPanelBeenShown = true;
+
+    const leaveTimer = window.setTimeout(() => {
+      setIntroPanelPhase("leaving");
+    }, OVERVIEW_INTRO_PANEL_HOLD_MS);
+    const hideTimer = window.setTimeout(() => {
+      setIntroPanelPhase("hidden");
+    }, OVERVIEW_INTRO_PANEL_HOLD_MS + OVERVIEW_INTRO_PANEL_SLIDE_MS);
+
+    return () => {
+      window.clearTimeout(leaveTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [introPanelPhase]);
 
   const handleSelect = (slug: string) => {
     setIsDrawerOpen(false);
@@ -1453,134 +2076,113 @@ function OverviewStage({
         ))}
       </OverviewMapFrame>
 
-      <div className="absolute left-4 top-4 z-20 w-[min(22.5rem,calc(100vw-6.5rem))] sm:left-6 sm:top-6 sm:w-[22.5rem]">
+      {isIntroPanelVisible ? (
         <div
-          className={`${PAPER_PANEL_CLASS} pointer-events-none rounded-[1.5rem] pl-4 pr-6 py-[1.25rem] backdrop-blur-xl sm:pl-[1.15rem] sm:pr-[1.65rem] sm:py-[1.3rem]`}
-        >
-          <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#7b6450]/72">
-            园林总览
-          </p>
-          <h2
-            className={`${mapLabelFont.className} mt-3 flex h-[2.35rem] items-center whitespace-nowrap leading-none tracking-[0.02em] text-[#2f2118] sm:h-[2.55rem]`}
-          >
-            <span className="inline-block origin-left scale-[1.18] text-[1.66rem] sm:text-[1.82rem]">
-              一园入画·掌上云游
-            </span>
-          </h2>
-          <p className="mt-3 text-sm leading-[1.75] text-[#5e4b3a]">
-            咫尺乾坤，一步一江湖
-          </p>
-        </div>
-      </div>
-
-      <div className="absolute bottom-4 left-4 z-30 flex flex-wrap items-center gap-2 sm:bottom-6 sm:left-6">
-        <BackgroundAudioButton
-          isEnabled={isBackgroundAudioEnabled}
-          onToggle={onBackgroundAudioToggle}
-        />
-
-        <button
-          type="button"
-          onClick={() =>
-            setMapMode((mode) => (mode === "heat" ? "normal" : "heat"))
-          }
-          aria-pressed={isHeatMode}
-          aria-label={isHeatMode ? "切换为导览图" : "切换为热力图"}
-          className={`${PAPER_BUTTON_CLASS} inline-flex h-11 items-center gap-2 rounded-full px-4 text-[13px] font-medium tracking-[0.12em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:px-[1.125rem]`}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className="h-[17px] w-[17px] text-[#5a4839]"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            {isHeatMode ? (
-              <>
-                <path d="M4 6.5 9 4l6 2.5 5-2.5v13.5L15 20l-6-2.5-5 2.5V6.5z" />
-                <path d="M9 4v13.5" />
-                <path d="M15 6.5V20" />
-              </>
-            ) : (
-              <>
-                <path d="M12 3.5c3.2 2.8 5 5.4 5 8a5 5 0 0 1-10 0c0-2.6 1.8-5.2 5-8z" />
-                <path d="M9.5 12.5a2.5 2.5 0 0 0 5 0" />
-              </>
-            )}
-          </svg>
-          <span>{isHeatMode ? "导览图" : "热力图"}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowRecommendedRoute((value) => !value)}
-          aria-pressed={showRecommendedRoute}
-          aria-label={
-            showRecommendedRoute ? "隐藏推荐路线" : "显示推荐路线"
-          }
-          className={`${PAPER_BUTTON_CLASS} inline-flex h-11 items-center gap-2 rounded-full px-4 text-[13px] font-medium tracking-[0.12em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:px-[1.125rem] ${
-            showRecommendedRoute
-              ? "border-[#8b462d]/25 text-[#5e3324] shadow-[0_14px_28px_rgba(112,70,42,0.14)]"
-              : ""
+          aria-hidden={isIntroPanelLeaving}
+          className={`absolute left-4 top-4 z-20 w-[min(22.5rem,calc(100vw-6.5rem))] will-change-transform transition-transform duration-[1500ms] ease-[cubic-bezier(0.18,0.9,0.22,1)] sm:left-6 sm:top-6 sm:w-[22.5rem] ${
+            isIntroPanelFullyVisible
+              ? "translate-x-0"
+              : "pointer-events-none -translate-x-[calc(100%+2rem)]"
           }`}
         >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className={`h-[17px] w-[17px] ${
-              showRecommendedRoute ? "text-[#8b462d]" : "text-[#5a4839]"
-            }`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4 17c3.8-6.7 7.4 3.1 11-3.6 1.1-2 2.8-3.4 5-4.1" />
-            <path d="m16.5 7.8 3.5 1.5-1.5 3.5" />
-            <path d="M5.5 17.2h.01" />
-            <path d="M12 15.4h.01" />
-          </svg>
-          <span>推荐路线</span>
-        </button>
-      </div>
-
-      {isHeatMode ? (
-        <div
-          className="pointer-events-none absolute bottom-4 right-4 z-30 w-[min(72vw,16rem)] px-1 py-1 text-[#3e332a] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)] sm:bottom-6 sm:right-6"
-          aria-label="人气颜色说明"
-        >
-          <p
-            className="inline-flex text-[12px] font-semibold tracking-[0.18em] text-[#2b211a]"
-            style={{
-              WebkitTextStroke: "2px rgba(255,255,255,0.78)",
-              paintOrder: "stroke fill",
-              textShadow:
-                "0 1px 2px rgba(42,31,21,0.18), 0 0 8px rgba(255,255,255,0.74)",
-            }}
-          >
-            人气等级
-          </p>
-          <div className="mt-2.5 h-2.5 rounded-full bg-[linear-gradient(90deg,_#44a563_0%,_#e5b82d_42%,_#e86f2a_70%,_#d62d2a_100%)] shadow-[inset_0_1px_2px_rgba(30,24,18,0.16)]" />
           <div
-            className="mt-2 grid grid-cols-4 text-[11px] font-semibold tracking-[0.08em] text-[#2b211a]"
-            style={{
-              WebkitTextStroke: "2px rgba(255,255,255,0.78)",
-              paintOrder: "stroke fill",
-              textShadow:
-                "0 1px 2px rgba(42,31,21,0.18), 0 0 8px rgba(255,255,255,0.74)",
-            }}
+            className={`${PAPER_PANEL_CLASS} pointer-events-none rounded-[1.5rem] pl-4 pr-6 py-[1.25rem] backdrop-blur-xl sm:pl-[1.15rem] sm:pr-[1.65rem] sm:py-[1.3rem]`}
           >
-            <span className="justify-self-start">清静</span>
-            <span className="justify-self-center">适中</span>
-            <span className="justify-self-center">热门</span>
-            <span className="justify-self-end">拥挤</span>
+            <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#7b6450]/72">
+              园林总览
+            </p>
+            <h2
+              className={`${mapLabelFont.className} mt-3 flex h-[2.35rem] items-center whitespace-nowrap leading-none tracking-[0.02em] text-[#2f2118] sm:h-[2.55rem]`}
+            >
+              <span className="inline-block origin-left scale-[1.18] text-[1.66rem] sm:text-[1.82rem]">
+                一园入画·掌上云游
+              </span>
+            </h2>
+            <p className="mt-3 text-sm leading-[1.75] text-[#5e4b3a]">
+              咫尺乾坤，一步一江湖
+            </p>
           </div>
         </div>
       ) : null}
+
+      <div className="absolute bottom-4 left-4 z-30 flex flex-col items-start gap-2 sm:bottom-6 sm:left-6">
+        {isHeatMode ? <HeatLegendPill /> : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <BackgroundAudioButton
+            isEnabled={isBackgroundAudioEnabled}
+            onToggle={onBackgroundAudioToggle}
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              setMapMode((mode) => (mode === "heat" ? "normal" : "heat"))
+            }
+            aria-pressed={isHeatMode}
+            aria-label={isHeatMode ? "切换为导览图" : "切换为热力图"}
+            className={`${PAPER_BUTTON_CLASS} inline-flex h-11 items-center gap-2 rounded-full px-4 text-[13px] font-medium tracking-[0.12em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:px-[1.125rem]`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="h-[17px] w-[17px] text-[#5a4839]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {isHeatMode ? (
+                <>
+                  <path d="M4 6.5 9 4l6 2.5 5-2.5v13.5L15 20l-6-2.5-5 2.5V6.5z" />
+                  <path d="M9 4v13.5" />
+                  <path d="M15 6.5V20" />
+                </>
+              ) : (
+                <>
+                  <path d="M12 3.5c3.2 2.8 5 5.4 5 8a5 5 0 0 1-10 0c0-2.6 1.8-5.2 5-8z" />
+                  <path d="M9.5 12.5a2.5 2.5 0 0 0 5 0" />
+                </>
+              )}
+            </svg>
+            <span>{isHeatMode ? "导览图" : "热力图"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowRecommendedRoute((value) => !value)}
+            aria-pressed={showRecommendedRoute}
+            aria-label={
+              showRecommendedRoute ? "隐藏推荐路线" : "显示推荐路线"
+            }
+            className={`${PAPER_BUTTON_CLASS} inline-flex h-11 items-center gap-2 rounded-full px-4 text-[13px] font-medium tracking-[0.12em] backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:px-[1.125rem] ${
+              showRecommendedRoute
+                ? "border-[#8b462d]/25 text-[#5e3324] shadow-[0_14px_28px_rgba(112,70,42,0.14)]"
+                : ""
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={`h-[17px] w-[17px] ${
+                showRecommendedRoute ? "text-[#8b462d]" : "text-[#5a4839]"
+              }`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 17c3.8-6.7 7.4 3.1 11-3.6 1.1-2 2.8-3.4 5-4.1" />
+              <path d="m16.5 7.8 3.5 1.5-1.5 3.5" />
+              <path d="M5.5 17.2h.01" />
+              <path d="M12 15.4h.01" />
+            </svg>
+            <span>推荐路线</span>
+          </button>
+        </div>
+      </div>
 
       <DirectoryDrawer
         models={models}
@@ -1621,7 +2223,8 @@ function SingleModelStage({
   isBackgroundAudioEnabled,
   onBackgroundAudioToggle,
 }: SingleModelStageProps) {
-  const interpretationText = model.interpretation.replace(/\n\s*\n+/g, "\n");
+  const introText = normalizeInterpretationText(model.interpretation);
+  const detailText = normalizeInterpretationText(model.detail ?? "");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const daylightProgressRef = useRef(0.5);
   const sunLightRef = useRef<DirectionalLight | null>(null);
@@ -1636,7 +2239,21 @@ function SingleModelStage({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isInterpretationReady, setIsInterpretationReady] = useState(false);
   const [isInterpretationOpen, setIsInterpretationOpen] = useState(true);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(true);
+  const [isGalleryLightboxOpen, setIsGalleryLightboxOpen] = useState(false);
+  const [galleryRotation, setGalleryRotation] = useState(0);
+  const [galleryScale, setGalleryScale] = useState(1);
+  const [galleryPan, setGalleryPan] = useState<NormalizedMapPoint>({
+    x: 0,
+    y: 0,
+  });
+  const [galleryPictures, setGalleryPictures] = useState(model.pictures);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [interpretationMode, setInterpretationMode] =
+    useState<InterpretationMode>("intro");
   const [typedInterpretation, setTypedInterpretation] = useState("");
+  const [hasIntroTypewriterCompleted, setHasIntroTypewriterCompleted] =
+    useState(false);
   const [isNarrationEnabled, setIsNarrationEnabled] = useState(true);
   const [isNarrationAvailable, setIsNarrationAvailable] = useState<
     boolean | null
@@ -1646,6 +2263,22 @@ function SingleModelStage({
   );
   const narrationAudioRef = useRef<HTMLAudioElement | null>(null);
   const narrationAudioSessionRef = useRef(0);
+  const isIntroInterpretationMode = interpretationMode === "intro";
+  const hasDetailText = detailText.trim().length > 0;
+  const displayedInterpretationText = isIntroInterpretationMode
+    ? typedInterpretation
+    : detailText;
+  const shouldShowInterpretationCursor =
+    isIntroInterpretationMode &&
+    !(hasIntroTypewriterCompleted || typedInterpretation.length >= introText.length) &&
+    typedInterpretation.length < introText.length;
+  const isNarrationControlEnabled =
+    isIntroInterpretationMode && Boolean(narrationAudioSrc);
+  const galleryPictureCount = galleryPictures.length;
+  const hasGalleryPictures = galleryPictureCount > 0;
+  const activeGalleryIndex = hasGalleryPictures
+    ? Math.min(galleryIndex, galleryPictureCount - 1)
+    : 0;
   const daylightSceneStyle = getDaylightSceneStyle(daylightProgress);
   const currentModelIndex = Math.max(
     models.findIndex((item) => item.slug === model.slug),
@@ -1687,22 +2320,83 @@ function SingleModelStage({
   }, [daylightProgress, syncDaylightShadow]);
 
   useEffect(() => {
-    stopNarrationAudio(
-      {
-        audioRef: narrationAudioRef,
-        audioSessionRef: narrationAudioSessionRef,
-      },
-      true
-    );
-    setIsNarrationAvailable(null);
-    setNarrationAudioSrc(null);
-    setIsDrawerOpen(false);
-    setIsInterpretationReady(false);
-    setIsInterpretationOpen(true);
-    setTypedInterpretation("");
-    daylightProgressRef.current = 0.5;
-    setDaylightProgress(0.5);
-  }, [model.slug]);
+    return () => {
+      stopNarrationAudio(
+        {
+          audioRef: narrationAudioRef,
+          audioSessionRef: narrationAudioSessionRef,
+        },
+        true
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isGalleryOpen) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    void fetch(`/api/model-pictures?slug=${encodeURIComponent(model.slug)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { pictures?: SiteModelPicture[] } | null) => {
+        const nextPictures = payload?.pictures;
+
+        if (controller.signal.aborted || !Array.isArray(nextPictures)) {
+          return;
+        }
+
+        setGalleryPictures(nextPictures);
+        setGalleryIndex((index) =>
+          nextPictures.length > 0 ? Math.min(index, nextPictures.length - 1) : 0
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      controller.abort();
+    };
+  }, [isGalleryOpen, model.slug]);
+
+  useEffect(() => {
+    if (!isGalleryLightboxOpen || typeof window === "undefined") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsGalleryLightboxOpen(false);
+      }
+
+      if (event.key === "ArrowLeft") {
+        setGalleryIndex((index) =>
+          galleryPictureCount > 0
+            ? (index - 1 + galleryPictureCount) % galleryPictureCount
+            : 0
+        );
+        setGalleryScale(1);
+        setGalleryPan({ x: 0, y: 0 });
+      }
+
+      if (event.key === "ArrowRight") {
+        setGalleryIndex((index) =>
+          galleryPictureCount > 0 ? (index + 1) % galleryPictureCount : 0
+        );
+        setGalleryScale(1);
+        setGalleryPan({ x: 0, y: 0 });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isGalleryLightboxOpen, galleryPictureCount]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1730,8 +2424,32 @@ function SingleModelStage({
     onSelect(slug);
   };
 
+  const selectGalleryIndex = (index: number) => {
+    setGalleryIndex(index);
+    setGalleryScale(1);
+    setGalleryPan({ x: 0, y: 0 });
+  };
+
+  const handleGalleryPrevious = () => {
+    setGalleryIndex((index) =>
+      galleryPictureCount > 0
+        ? (index - 1 + galleryPictureCount) % galleryPictureCount
+        : 0
+    );
+    setGalleryScale(1);
+    setGalleryPan({ x: 0, y: 0 });
+  };
+
+  const handleGalleryNext = () => {
+    setGalleryIndex((index) =>
+      galleryPictureCount > 0 ? (index + 1) % galleryPictureCount : 0
+    );
+    setGalleryScale(1);
+    setGalleryPan({ x: 0, y: 0 });
+  };
+
   const handleNarrationToggle = () => {
-    if (!narrationAudioSrc) {
+    if (!isNarrationControlEnabled) {
       return;
     }
 
@@ -1750,7 +2468,39 @@ function SingleModelStage({
     setIsNarrationEnabled(true);
   };
 
+  const handleInterpretationModeChange = (mode: InterpretationMode) => {
+    if (mode === interpretationMode) {
+      return;
+    }
+
+    if (mode === "detail" && !hasDetailText) {
+      return;
+    }
+
+    if (
+      mode === "detail" &&
+      isIntroInterpretationMode &&
+      typedInterpretation.length < introText.length
+    ) {
+      setTypedInterpretation(introText);
+      setHasIntroTypewriterCompleted(true);
+    }
+
+    setInterpretationMode(mode);
+  };
+
   useEffect(() => {
+    if (!isIntroInterpretationMode) {
+      return;
+    }
+
+    if (
+      hasIntroTypewriterCompleted ||
+      typedInterpretation.length >= introText.length
+    ) {
+      return;
+    }
+
     if (!isInterpretationReady) {
       return;
     }
@@ -1759,11 +2509,7 @@ function SingleModelStage({
       return;
     }
 
-    if (typedInterpretation.length >= interpretationText.length) {
-      return;
-    }
-
-    const nextCharacter = interpretationText[typedInterpretation.length];
+    const nextCharacter = introText[typedInterpretation.length];
     const delay =
       nextCharacter === "\n"
         ? INTERPRETATION_TYPE_INTERVAL_MS * 3
@@ -1773,20 +2519,26 @@ function SingleModelStage({
 
     const timer = window.setTimeout(() => {
       setTypedInterpretation(
-        interpretationText.slice(0, typedInterpretation.length + 1)
+        introText.slice(0, typedInterpretation.length + 1)
       );
     }, delay);
 
     return () => window.clearTimeout(timer);
   }, [
+    hasIntroTypewriterCompleted,
     isInterpretationOpen,
     isInterpretationReady,
-    interpretationText,
+    isIntroInterpretationMode,
+    introText,
     typedInterpretation,
   ]);
 
   useEffect(() => {
-    if (isInterpretationOpen && isNarrationEnabled) {
+    if (
+      isIntroInterpretationMode &&
+      isInterpretationOpen &&
+      isNarrationEnabled
+    ) {
       return;
     }
 
@@ -1797,10 +2549,11 @@ function SingleModelStage({
       },
       true
     );
-  }, [isInterpretationOpen, isNarrationEnabled]);
+  }, [isInterpretationOpen, isIntroInterpretationMode, isNarrationEnabled]);
 
   useEffect(() => {
     if (
+      !isIntroInterpretationMode ||
       !isNarrationEnabled ||
       !isInterpretationReady ||
       !isInterpretationOpen ||
@@ -1859,6 +2612,7 @@ function SingleModelStage({
   }, [
     isInterpretationOpen,
     isInterpretationReady,
+    isIntroInterpretationMode,
     isNarrationEnabled,
     narrationAudioSrc,
   ]);
@@ -2353,18 +3107,64 @@ function SingleModelStage({
               >
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,_rgba(255,255,255,0.7)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
                 <div className="relative flex min-w-0 items-start justify-between gap-3">
-                  <h3
-                    className={`${mapLabelFont.className} text-[1.52rem] leading-none tracking-[0.03em] text-[#2f2118]`}
-                  >
-                    关于建筑
-                  </h3>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                    <h3
+                      className={`${mapLabelFont.className} shrink-0 text-[1.52rem] leading-none tracking-[0.03em] text-[#2f2118]`}
+                    >
+                      关于建筑
+                    </h3>
+                    <div
+                      role="tablist"
+                      aria-label="切换关于建筑文字"
+                      className={`${PAPER_BUTTON_CLASS} relative inline-grid h-8 shrink-0 grid-cols-2 overflow-hidden rounded-full text-[12px] font-medium leading-none backdrop-blur-md`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute bottom-1.5 left-1/2 top-1.5 z-10 w-px bg-[#8c7156]/24"
+                      />
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={interpretationMode === "intro"}
+                        onClick={() => handleInterpretationModeChange("intro")}
+                        className={`relative z-20 flex min-w-[3.15rem] items-center justify-center rounded-l-full px-3 transition ${
+                          interpretationMode === "intro"
+                            ? "bg-[rgba(255,255,255,0.68)] text-[#2f2118] shadow-[inset_0_0_0_1px_rgba(77,59,45,0.08)]"
+                            : "text-[#7b6450] hover:bg-white/35 hover:text-[#2f2118]"
+                        }`}
+                      >
+                        简介
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={interpretationMode === "detail"}
+                        aria-disabled={!hasDetailText}
+                        disabled={!hasDetailText}
+                        onClick={() => handleInterpretationModeChange("detail")}
+                        className={`relative z-20 flex min-w-[3.15rem] items-center justify-center rounded-r-full px-3 transition ${
+                          interpretationMode === "detail"
+                            ? "bg-[rgba(255,255,255,0.68)] text-[#2f2118] shadow-[inset_0_0_0_1px_rgba(77,59,45,0.08)]"
+                            : hasDetailText
+                              ? "text-[#7b6450] hover:bg-white/35 hover:text-[#2f2118]"
+                              : "cursor-not-allowed text-[#8c7156]/45"
+                        }`}
+                      >
+                        详情
+                      </button>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={handleNarrationToggle}
-                    disabled={!narrationAudioSrc}
-                    aria-pressed={narrationAudioSrc ? isNarrationEnabled : false}
+                    disabled={!isNarrationControlEnabled}
+                    aria-pressed={
+                      isNarrationControlEnabled ? isNarrationEnabled : false
+                    }
                     aria-label={
-                      narrationAudioSrc
+                      !isIntroInterpretationMode
+                        ? "简介音频仅在简介中可用"
+                        : narrationAudioSrc
                         ? isNarrationEnabled
                           ? "关闭音频"
                           : "开启音频"
@@ -2373,7 +3173,7 @@ function SingleModelStage({
                           : "正在检查音频"
                     }
                     className={`${PAPER_BUTTON_CLASS} flex h-9 w-9 shrink-0 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] ${
-                      narrationAudioSrc
+                      isNarrationControlEnabled
                         ? ""
                         : "cursor-not-allowed opacity-45 hover:border-[#4d3b2d]/10 hover:bg-[linear-gradient(180deg,_rgba(255,255,253,0.96)_0%,_rgba(247,243,236,0.98)_100%)]"
                     }`}
@@ -2389,7 +3189,7 @@ function SingleModelStage({
                       strokeLinejoin="round"
                     >
                       <path d="M5 9v6h4l5 4V5l-5 4H5z" />
-                      {narrationAudioSrc && isNarrationEnabled ? (
+                      {isNarrationControlEnabled && isNarrationEnabled ? (
                         <>
                           <path d="M18 9.5a4 4 0 0 1 0 5" />
                           <path d="M20.5 7a7.5 7.5 0 0 1 0 10" />
@@ -2414,8 +3214,8 @@ function SingleModelStage({
                 <div className="paper-scrollarea relative mt-4 max-h-[min(42vh,24rem)] overflow-y-auto pr-1 sm:max-h-[calc(100vh-22rem)]">
                   <div>
                     {renderInterpretationContent(
-                      typedInterpretation,
-                      typedInterpretation.length < interpretationText.length
+                      displayedInterpretationText,
+                      shouldShowInterpretationCursor
                     )}
                   </div>
                 </div>
@@ -2448,6 +3248,52 @@ function SingleModelStage({
           ) : null}
         </div>
       </div>
+
+      {hasGalleryPictures ? (
+        <BuildingGalleryPanel
+          model={model}
+          pictures={galleryPictures}
+          currentIndex={activeGalleryIndex}
+          isOpen={isGalleryOpen}
+          onOpen={() => setIsGalleryOpen(true)}
+          onClose={() => setIsGalleryOpen(false)}
+          onExpand={() => setIsGalleryLightboxOpen(true)}
+          onPrevious={handleGalleryPrevious}
+          onNext={handleGalleryNext}
+          onSelect={selectGalleryIndex}
+        />
+      ) : null}
+
+      {hasGalleryPictures ? (
+        <BuildingGalleryLightbox
+          model={model}
+          pictures={galleryPictures}
+          currentIndex={activeGalleryIndex}
+          isOpen={isGalleryLightboxOpen}
+          rotation={galleryRotation}
+          scale={galleryScale}
+          pan={galleryPan}
+          onClose={() => setIsGalleryLightboxOpen(false)}
+          onPrevious={handleGalleryPrevious}
+          onNext={handleGalleryNext}
+          onRotateLeft={() => setGalleryRotation((rotation) => rotation - 90)}
+          onRotateRight={() => setGalleryRotation((rotation) => rotation + 90)}
+          onZoomIn={() => setGalleryScale((scale) => Math.min(3, scale + 0.25))}
+          onZoomOut={() =>
+            setGalleryScale((scale) => {
+              const nextScale = Math.max(0.5, scale - 0.25);
+
+              if (nextScale <= 1) {
+                setGalleryPan({ x: 0, y: 0 });
+              }
+
+              return nextScale;
+            })
+          }
+          onPanChange={setGalleryPan}
+          onSelect={selectGalleryIndex}
+        />
+      ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-end px-4 sm:bottom-6 sm:px-6 lg:justify-center lg:px-4">
         {viewerState.kind === "loading" ? (
@@ -2736,6 +3582,7 @@ export default function ModelViewer({
       />
       {selectedModel ? (
         <SingleModelStage
+          key={selectedModel.slug}
           models={models}
           model={selectedModel}
           onSelect={runInkTransition}

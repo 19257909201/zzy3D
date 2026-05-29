@@ -19,6 +19,7 @@ type SiteModelCopy = {
   summary: string;
   verse: string;
   interpretation: string;
+  detail?: string;
   overviewMeta: string;
   overviewTag: string;
   overviewCopy: string;
@@ -33,8 +34,14 @@ type SiteModelPlacement = {
 
 type SiteModelRecord = SiteModelPlacement & SiteModelCopy;
 
+export type SiteModelPicture = {
+  fileName: string;
+  src: string;
+};
+
 export type SiteModelSummary = SiteModelRecord & {
   fileName: string;
+  pictures: SiteModelPicture[];
 };
 
 export type SiteModelAsset = SiteModelSummary & {
@@ -42,6 +49,11 @@ export type SiteModelAsset = SiteModelSummary & {
 };
 
 const GLB_DIRECTORY = path.join(process.cwd(), "glbfile");
+const PUBLIC_PICTURES_DIRECTORY = path.join(
+  process.cwd(),
+  "public",
+  "pictures"
+);
 const LOCATION_IMAGE_PATH = path.join(GLB_DIRECTORY, "location.png");
 const SITE_MODEL_COPY_CONFIG_PATH = path.join(
   process.cwd(),
@@ -49,6 +61,13 @@ const SITE_MODEL_COPY_CONFIG_PATH = path.join(
   "site-model-content.json"
 );
 const SAFE_SLUG_PATTERN = /^[a-z0-9-]+$/;
+const SITE_MODEL_PICTURE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+]);
 
 // This order drives both the directory and previous/next model navigation.
 const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
@@ -56,6 +75,11 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     slug: "linglongguan",
     mapPosition: { x: 0.807, y: 0.7078 },
     mapSize: { width: 0.056, height: 0.05 },
+  },
+  {
+    slug: "tingyuxuan",
+    mapPosition: { x: 0.854, y: 0.7766 },
+    mapSize: { width: 0.068, height: 0.05 },
   },
   {
     slug: "yuanxiangtang",
@@ -76,6 +100,16 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     slug: "yulantang",
     mapPosition: { x: 0.4058, y: 0.7141 },
     mapSize: { width: 0.064, height: 0.042 },
+  },
+  {
+    slug: "fucuige",
+    mapPosition: { x: 0.1919, y: 0.4188 },
+    mapSize: { width: 0.056, height: 0.05 },
+  },
+  {
+    slug: "yushuitongzuoxuan",
+    mapPosition: { x: 0.2613, y: 0.5238 },
+    mapSize: { width: 0.09, height: 0.042 },
   },
   {
     slug: "jianshanlou",
@@ -118,6 +152,7 @@ const SITE_MODEL_COPY_FIELDS = [
   "summary",
   "verse",
   "interpretation",
+  "detail",
   "overviewMeta",
   "overviewTag",
   "overviewCopy",
@@ -126,6 +161,10 @@ const SITE_MODEL_COPY_FIELDS = [
 
 function toFileName(slug: string) {
   return `${slug}.glb`;
+}
+
+function toPublicPictureSrc(slug: string, fileName: string) {
+  return `/pictures/${slug}/${encodeURIComponent(fileName)}`;
 }
 
 function toFallbackLabel(slug: string) {
@@ -177,6 +216,7 @@ function toSiteModelCopy(
     summary: configuredCopy?.summary ?? fallbacks.summary,
     verse: configuredCopy?.verse ?? fallbacks.verse,
     interpretation: configuredCopy?.interpretation ?? fallbacks.interpretation,
+    detail: configuredCopy?.detail ?? fallbacks.detail,
     overviewMeta: configuredCopy?.overviewMeta ?? fallbacks.overviewMeta,
     overviewTag: configuredCopy?.overviewTag ?? fallbacks.overviewTag,
     overviewCopy: configuredCopy?.overviewCopy ?? fallbacks.overviewCopy,
@@ -226,6 +266,46 @@ async function getSiteModelCopyBySlug() {
   return new Map<string, Partial<SiteModelCopy>>(entries);
 }
 
+export async function getSiteModelPictures(
+  slug: string
+): Promise<SiteModelPicture[]> {
+  if (!SAFE_SLUG_PATTERN.test(slug)) {
+    return [];
+  }
+
+  const entries = await readdir(path.join(PUBLIC_PICTURES_DIRECTORY, slug), {
+    withFileTypes: true,
+  }).catch(() => []);
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        SITE_MODEL_PICTURE_EXTENSIONS.has(
+          path.extname(entry.name).toLowerCase()
+        )
+    )
+    .map((entry) => entry.name)
+    .sort((left, right) =>
+      left.localeCompare(right, "en", {
+        numeric: true,
+        sensitivity: "base",
+      })
+    )
+    .map((fileName) => ({
+      fileName,
+      src: toPublicPictureSrc(slug, fileName),
+    }));
+}
+
+async function getSiteModelPicturesBySlug(slugs: string[]) {
+  const entries = await Promise.all(
+    slugs.map(async (slug) => [slug, await getSiteModelPictures(slug)] as const)
+  );
+
+  return new Map<string, SiteModelPicture[]>(entries);
+}
+
 export function getLocationImagePath() {
   return LOCATION_IMAGE_PATH;
 }
@@ -239,6 +319,7 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".glb"))
     .map((entry) => entry.name.slice(0, -4));
   const discoveredSlugSet = new Set(discoveredSlugs);
+  const picturesBySlug = await getSiteModelPicturesBySlug(discoveredSlugs);
 
   const knownModels = SITE_MODEL_PLACEMENTS.filter((placement) =>
     discoveredSlugSet.has(placement.slug)
@@ -250,6 +331,7 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
       placement.mapSize
     ),
     fileName: toFileName(placement.slug),
+    pictures: picturesBySlug.get(placement.slug) ?? [],
   }));
 
   const unknownSlugs = discoveredSlugs
@@ -267,6 +349,7 @@ export async function getAvailableSiteModels(): Promise<SiteModelSummary[]> {
       }
     ),
     fileName: toFileName(slug),
+    pictures: picturesBySlug.get(slug) ?? [],
   }));
 
   return [...knownModels, ...unknownModels];
@@ -288,7 +371,10 @@ export async function getSiteModelAsset(
   }
 
   const placement = placementBySlug.get(slug);
-  const copyBySlug = await getSiteModelCopyBySlug();
+  const [copyBySlug, pictures] = await Promise.all([
+    getSiteModelCopyBySlug(),
+    getSiteModelPictures(slug),
+  ]);
 
   return {
     ...toSiteModelRecord(
@@ -298,6 +384,7 @@ export async function getSiteModelAsset(
       placement?.mapSize ?? DEFAULT_MAP_SIZE
     ),
     fileName: toFileName(slug),
+    pictures,
     filePath,
   };
 }

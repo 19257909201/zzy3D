@@ -331,13 +331,14 @@ docs/
 - `label`
 - `summary`
 - `verse`
-- `interpretation`
+- `interpretation`：简介文字，也是当前音频旁白匹配的文案
+- `detail`：详情文字，可选
 - `overviewMeta`
 - `overviewTag`
 - `overviewCopy`
 - `overviewHint`
 
-`interpretation` 中使用 `\n` 表示换行。AI 或脚本更新文案时，只需要按建筑 `slug` 读写这个配置文件，不需要改 `lib/site-models.ts`。
+`interpretation` 和 `detail` 中使用 `\n` 表示换行。AI 或脚本更新文案时，只需要按建筑 `slug` 读写这个配置文件，不需要改 `lib/site-models.ts`。
 
 ## 9. 样式与视觉实现
 
