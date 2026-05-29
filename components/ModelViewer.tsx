@@ -77,6 +77,7 @@ type MapLabelProps = {
   isPreviewed: boolean;
   isVisited: boolean;
   routeOrder?: number;
+  routeAccent?: RgbColor;
 };
 
 type DirectoryDrawerProps = {
@@ -133,6 +134,22 @@ type ThemeRoute = {
   accent: RgbColor;
 };
 
+type RouteTransportOption = {
+  mode: string;
+  duration: string;
+  summary: string;
+  detail: string;
+};
+
+type RouteAccessGuide = {
+  gateName: string;
+  gateType: string;
+  destination: string;
+  gardenLead: string;
+  recommendation: string;
+  transportOptions: readonly RouteTransportOption[];
+};
+
 type InkWashOverlayProps = {
   phase: InkTransitionPhase;
   label: string;
@@ -157,6 +174,12 @@ type ThemeRouteSelectorPanelProps = {
   onSelectRoute: (routeId: ThemeRouteId) => void;
   onClearRoute: () => void;
   onStartRoute: () => void;
+};
+
+type RouteAccessPanelProps = {
+  route: ThemeRoute;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
 };
 
 type BuildingGalleryPanelProps = {
@@ -567,6 +590,164 @@ const THEME_ROUTES = [
     ],
   },
 ] as const satisfies readonly ThemeRoute[];
+
+const ROUTE_ACCESS_GUIDES: Record<ThemeRouteId, RouteAccessGuide> = {
+  "first-visit": {
+    gateName: "东南门",
+    gateType: "初游入园口",
+    destination: "拙政园东南门 / 听雨轩方向",
+    gardenLead: "入园后先贴东侧庭院走，接听雨轩、海棠春坞，再进入中部水面。",
+    recommendation:
+      "推荐第一次来拙政园或想看全园格局的人，从东南门进可以先收住庭院尺度，再逐步走到中园水面和西部水岸。",
+    transportOptions: [
+      {
+        mode: "地铁",
+        duration: "约25-35分钟",
+        summary: "苏州站 2号线到平河路，换 6号线到拙政园苏博。",
+        detail:
+          "出站后沿园林路、东北街向东南门走，先到听雨轩一侧入线，进入后按东园到中园的顺序游览。",
+      },
+      {
+        mode: "公交",
+        duration: "约25-40分钟",
+        summary: "苏州站北广场上车，到拙政园东或苏州博物馆周边站下。",
+        detail:
+          "更靠近东侧入口的站点优先，下车后沿园林路步行到东南门，适合不想换乘地铁时使用。",
+      },
+      {
+        mode: "打车",
+        duration: "约12-18分钟",
+        summary: "目的地填拙政园东南门或拙政园东门。",
+        detail:
+          "让车辆停在东北街或园林路可下客位置，步行入园后直接切入听雨轩、海棠春坞。",
+      },
+    ],
+  },
+  lotus: {
+    gateName: "南门",
+    gateType: "主入口",
+    destination: "拙政园南门 / 远香堂方向",
+    gardenLead: "入园后直取远香堂与中部水面，再绕荷风四面亭、香洲、小飞虹。",
+    recommendation:
+      "推荐夏季赏荷或时间较紧的人，从南门进最容易直达远香堂和主水面，水岸节点集中，走法更高效。",
+    transportOptions: [
+      {
+        mode: "地铁",
+        duration: "约25-35分钟",
+        summary: "苏州站 2号线到平河路，换 6号线到拙政园苏博。",
+        detail:
+          "出站后向东北街主入口步行，进南门后不要先绕东园，直接向远香堂和水池中部推进。",
+      },
+      {
+        mode: "公交",
+        duration: "约25-45分钟",
+        summary: "到苏州博物馆（拙政园、狮子林）或拙政园附近站下。",
+        detail:
+          "下车后沿东北街到主入口，进门后向远香堂走，夏季可先在池边停留再过小飞虹。",
+      },
+      {
+        mode: "打车",
+        duration: "约10-16分钟",
+        summary: "目的地填拙政园南门或拙政园主入口。",
+        detail:
+          "南门离中园水面更顺，入园后先到远香堂，后续按水岸环线走，不必从东侧庭院起步。",
+      },
+    ],
+  },
+  "borrowed-view": {
+    gateName: "南门西侧",
+    gateType: "借景入园口",
+    destination: "拙政园南门 / 远香堂西侧",
+    gardenLead: "进门后先到远香堂，再上荷风四面亭、雪香云蔚亭和见山楼看远借关系。",
+    recommendation:
+      "推荐想理解造园技法的人，从南门贴近中园起步，能最快进入对景、框景、登高借景的连续观察线。",
+    transportOptions: [
+      {
+        mode: "地铁",
+        duration: "约25-35分钟",
+        summary: "苏州站 2号线到平河路，换 6号线到拙政园苏博。",
+        detail:
+          "出站后走到南门，入园先找远香堂视线轴，再逐步转向亭、桥、楼，方便理解借景层次。",
+      },
+      {
+        mode: "公交",
+        duration: "约25-45分钟",
+        summary: "到苏州博物馆（拙政园、狮子林）站后步行到南门。",
+        detail:
+          "这个下车点离中园入口更直接，适合直接开始远香堂、荷风四面亭、见山楼的借景线。",
+      },
+      {
+        mode: "打车",
+        duration: "约10-16分钟",
+        summary: "目的地填拙政园南门，靠近苏州博物馆侧下车。",
+        detail:
+          "少走东侧庭院，进门后尽快进入中部水池边，从开阔视角开始看借景。",
+      },
+    ],
+  },
+  "scholar-study": {
+    gateName: "东门",
+    gateType: "书斋庭院入口",
+    destination: "拙政园东门 / 听雨轩方向",
+    gardenLead: "从东侧安静庭院起步，听雨轩、海棠春坞、玲珑馆、梧竹幽居依次串联。",
+    recommendation:
+      "推荐偏好安静庭院、题名和植物意象的人，从东门进能避开主水面人流，先读小空间再转入开阔处。",
+    transportOptions: [
+      {
+        mode: "地铁",
+        duration: "约25-35分钟",
+        summary: "苏州站 2号线到平河路，换 6号线到拙政园苏博。",
+        detail:
+          "出站后沿园林路向东门方向走，入园先找听雨轩，避开中园大水面的主游线人流。",
+      },
+      {
+        mode: "公交",
+        duration: "约25-40分钟",
+        summary: "优先到拙政园东、拙政园苏博东侧或园林路周边站。",
+        detail:
+          "下车后从东侧入园，先看小庭院和植物题名，再转入远香堂，不会打断书斋线节奏。",
+      },
+      {
+        mode: "打车",
+        duration: "约12-18分钟",
+        summary: "目的地填拙政园东门或园林路拙政园入口。",
+        detail:
+          "从东门下车后步行最短，适合老人、小朋友或想直接进入安静庭院的游览。",
+      },
+    ],
+  },
+  seasonal: {
+    gateName: "东南门",
+    gateType: "四季景观入口",
+    destination: "拙政园东南门 / 海棠春坞方向",
+    gardenLead: "入园先看海棠春坞，再走梧竹幽居、待霜亭、雪香云蔚亭和荷风四面亭。",
+    recommendation:
+      "推荐想按春花、夏荷、秋霜、冬梅读园的人，从东南门进先接春景点，再自然过渡到四季节点。",
+    transportOptions: [
+      {
+        mode: "地铁",
+        duration: "约25-35分钟",
+        summary: "苏州站 2号线到平河路，换 6号线到拙政园苏博。",
+        detail:
+          "出站后向东南门步行，进门先到海棠春坞，随后按植物和季相节点向中园推进。",
+      },
+      {
+        mode: "公交",
+        duration: "约25-40分钟",
+        summary: "到拙政园东或苏州博物馆周边站，下车后走东侧入口。",
+        detail:
+          "东侧入口离海棠春坞、梧竹幽居更近，适合把春花、竹影、秋亭、冬梅连续看完。",
+      },
+      {
+        mode: "打车",
+        duration: "约12-18分钟",
+        summary: "目的地填拙政园东南门，避免直接停到西侧出口。",
+        detail:
+          "从东南门起步可先看春景点，最后自然转到中园水面，路线更完整。",
+      },
+    ],
+  },
+};
 
 type InterpretationAudioRefs = {
   audioRef: MutableRefObject<HTMLAudioElement | null>;
@@ -1883,9 +2064,11 @@ function MapBuildingLift({
 function MapVisitedFootprintLayer({
   models,
   visitedModelSlugs,
+  heatOverlay = false,
 }: {
   models: SiteModelSummary[];
   visitedModelSlugs: ReadonlySet<string>;
+  heatOverlay?: boolean;
 }) {
   const visitedModels = models.filter((model) =>
     visitedModelSlugs.has(model.slug)
@@ -1899,11 +2082,12 @@ function MapVisitedFootprintLayer({
     <div className="pointer-events-none absolute inset-0 z-[7]">
       {visitedModels.map((model) => {
         const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
-        const washWidth = Math.max(model.mapSize.width * 176, 7.4);
-        const washHeight = Math.max(
-          model.mapSize.height * LOCATION_IMAGE_RATIO * 176,
-          5.8
-        );
+        const washWidth = heatOverlay
+          ? Math.max(model.mapSize.width * 84, 4.2)
+          : Math.max(model.mapSize.width * 176, 7.4);
+        const washHeight = heatOverlay
+          ? Math.max(model.mapSize.height * LOCATION_IMAGE_RATIO * 84, 3.4)
+          : Math.max(model.mapSize.height * LOCATION_IMAGE_RATIO * 176, 5.8);
 
         return (
           <div
@@ -1918,9 +2102,11 @@ function MapVisitedFootprintLayer({
             }}
             aria-hidden="true"
           >
-            <span
-              className="absolute inset-0 rounded-full bg-[rgba(248,242,231,0.58)] shadow-[0_0_26px_rgba(255,248,236,0.48)] mix-blend-screen"
-            />
+            {heatOverlay ? (
+              <span className="absolute inset-0 rounded-full border border-dashed border-[rgba(255,248,230,0.62)] bg-[radial-gradient(ellipse_at_center,_rgba(255,252,244,0.12)_0%,_rgba(255,252,244,0.06)_42%,_transparent_72%)] shadow-[0_0_0_1px_rgba(86,61,38,0.08)]" />
+            ) : (
+              <span className="absolute inset-0 rounded-full bg-[rgba(248,242,231,0.58)] shadow-[0_0_26px_rgba(255,248,236,0.48)] mix-blend-screen" />
+            )}
           </div>
         );
       })}
@@ -2059,10 +2245,8 @@ function MapThemeRouteLayer({
   route: ThemeRoute;
 }) {
   const routePoints = resolveThemeRoutePoints(route, models);
-  const routeStops = resolveThemeRouteStops(route, models);
   const routePath = toRoutePath(routePoints);
   const routeColor = toRgb(route.accent, 0.88);
-  const routeGlowColor = toRgb(route.accent, 0.2);
   const routeFlowColor = toRgb(route.accent, 0.42);
   const routeFilterId = `theme-route-shadow-${route.id}`;
 
@@ -2128,27 +2312,6 @@ function MapThemeRouteLayer({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-
-      {routeStops.map((stop, index) => {
-        const mapPosition = stop.mapPosition ?? FALLBACK_MAP_POSITION;
-
-        return (
-          <span
-            key={`${route.id}-${stop.slug}`}
-            className="absolute flex h-6 w-6 items-center justify-center rounded-full border border-white/80 bg-[rgba(255,252,245,0.92)] text-[11px] font-semibold leading-none shadow-[0_8px_18px_rgba(48,34,23,0.2)]"
-            style={{
-              left: `${mapPosition.x * 100}%`,
-              top: `${mapPosition.y * 100}%`,
-              color: routeColor,
-              boxShadow: `0 0 0 4px ${routeGlowColor}, 0 8px 18px rgba(48,34,23,0.2)`,
-              transform: "translate(-50%, calc(-50% + 33px))",
-            }}
-            aria-hidden="true"
-          >
-            {index + 1}
-          </span>
-        );
-      })}
 
       <style jsx>{`
         .theme-route-line {
@@ -2230,6 +2393,7 @@ function OverviewMapFrame({
           <MapVisitedFootprintLayer
             models={models}
             visitedModelSlugs={visitedModelSlugs}
+            heatOverlay={isHeatMode}
           />
           {highlightedModel ? (
             <MapBuildingLift
@@ -2253,10 +2417,15 @@ function MapLabel({
   isPreviewed,
   isVisited,
   routeOrder,
+  routeAccent,
 }: MapLabelProps) {
   const mapPosition = model.mapPosition ?? FALLBACK_MAP_POSITION;
   const shouldPlaceStampLeft = mapPosition.x > 0.72;
   const isRouteStop = routeOrder !== undefined;
+  const routeStopColor = routeAccent ? toRgb(routeAccent, 0.88) : "#8b462d";
+  const routeStopGlowColor = routeAccent
+    ? toRgb(routeAccent, 0.2)
+    : "rgba(139,70,45,0.2)";
 
   return (
     <div
@@ -2286,11 +2455,24 @@ function MapLabel({
           className={`pointer-events-none absolute left-1/2 top-1/2 -z-10 h-14 w-[calc(100%+2rem)] -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "bg-[rgba(255,248,236,0.78)]"
-              : "bg-white/0 group-hover:bg-[rgba(255,248,236,0.72)] group-focus-visible:bg-[rgba(255,248,236,0.72)]"
+            : "bg-white/0 group-hover:bg-[rgba(255,248,236,0.72)] group-focus-visible:bg-[rgba(255,248,236,0.72)]"
           }`}
         />
+        {isRouteStop ? (
+          <span
+            className="pointer-events-none absolute left-1/2 z-0 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/80 bg-[rgba(255,252,245,0.92)] text-[11px] font-semibold leading-none shadow-[0_8px_18px_rgba(48,34,23,0.2)] transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] group-hover:scale-110 group-focus-visible:scale-110"
+            style={{
+              top: `calc(50% + ${LABEL_DOT_OFFSET}px)`,
+              color: routeStopColor,
+              boxShadow: `0 0 0 4px ${routeStopGlowColor}, 0 8px 18px rgba(48,34,23,0.2)`,
+            }}
+            aria-hidden="true"
+          >
+            {routeOrder + 1}
+          </span>
+        ) : null}
         <span
-          className={`pointer-events-none absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
+          className={`pointer-events-none absolute left-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/80 bg-white transition duration-[720ms] ease-[cubic-bezier(0.16,0.84,0.22,1)] ${
             isPreviewed
               ? "scale-125 border-[#6e3128]/80 bg-[#f3ddbd] shadow-[0_0_0_1.5px_rgba(91,43,32,0.72),0_0_18px_rgba(255,255,255,0.84)]"
               : isRouteStop
@@ -2640,6 +2822,162 @@ function ThemeRouteSelectorPanel({
   );
 }
 
+function RouteAccessPanel({
+  route,
+  isExpanded,
+  onToggleExpanded,
+}: RouteAccessPanelProps) {
+  const guide = ROUTE_ACCESS_GUIDES[route.id];
+  const taxiOption =
+    guide.transportOptions.find((option) => option.mode === "打车") ??
+    guide.transportOptions[guide.transportOptions.length - 1];
+
+  return (
+    <aside
+      className={`${PAPER_PANEL_CLASS} pointer-events-auto absolute right-4 top-[5.25rem] z-20 flex overflow-hidden rounded-[1.25rem] backdrop-blur-xl transition-[width,height,transform,opacity] duration-300 sm:right-6 sm:top-[5.75rem] ${
+        isExpanded
+          ? "h-[min(42rem,calc(100vh-10rem))] w-[min(92vw,24rem)]"
+          : "h-[8.65rem] w-[min(78vw,17.75rem)]"
+      }`}
+      aria-label={`${route.label}交通走法`}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,_rgba(255,255,255,0.72)_0%,_transparent_34%),linear-gradient(180deg,_rgba(134,108,76,0.03)_0%,_rgba(255,255,255,0)_100%)]" />
+      <div className="relative flex h-full min-h-0 w-full flex-col gap-3 p-3.5 sm:p-4">
+        <div className="min-w-0 pr-12">
+          <p className="text-xs font-medium uppercase tracking-[0.3em] text-[#7b6450]/72">
+            路线入口
+          </p>
+          <h2
+            className={`${mapLabelFont.className} mt-2 truncate text-[1.42rem] leading-none tracking-[0.03em] text-[#2f2118] sm:text-[1.54rem]`}
+          >
+            {route.shortLabel} · {guide.gateName}
+          </h2>
+          {isExpanded ? (
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+              <span
+                className="shrink-0 rounded-full border bg-white/76 px-2 py-1 text-[11px] leading-none"
+                style={{
+                  borderColor: toRgb(route.accent, 0.22),
+                  color: toRgb(route.accent, 0.9),
+                }}
+              >
+                {guide.gateType}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mt-2 flex min-w-0 items-center gap-2">
+                <span
+                  className="max-w-[8.1rem] shrink truncate rounded-full border bg-white/76 px-2 py-1 text-[11px] leading-none"
+                  style={{
+                    borderColor: toRgb(route.accent, 0.22),
+                    color: toRgb(route.accent, 0.9),
+                  }}
+                >
+                  {guide.gateType}
+                </span>
+                <span className="min-w-0 shrink-0 rounded-full border border-[#7a5f42]/12 bg-[rgba(255,255,255,0.58)] px-2 py-1 text-[11px] leading-none text-[#5e4b3a]">
+                  打车 {taxiOption.duration}
+                </span>
+              </div>
+              <p className="mt-2 truncate text-[12px] leading-5 text-[#5e4b3a]">
+                从 {guide.destination} 入园
+              </p>
+            </>
+          )}
+        </div>
+
+        {isExpanded ? (
+          <>
+            <div className="rounded-[0.95rem] border border-[#6b5645]/8 bg-[rgba(255,255,255,0.62)] px-3 py-2.5">
+              <p className="text-[12px] font-medium leading-5 text-[#7b5138]">
+                从哪个门入
+              </p>
+              <p className="mt-1 text-sm leading-6 text-[#2f2118]">
+                {guide.destination}
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-[#5e4b3a]">
+                {guide.gardenLead}
+              </p>
+            </div>
+
+            <div className="rounded-[0.95rem] border border-[#6b5645]/8 bg-[rgba(255,255,255,0.58)] px-3 py-2.5">
+              <p className="text-[12px] font-medium leading-5 text-[#7b5138]">
+                路线推荐
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-[#5e4b3a]">
+                {guide.recommendation}
+              </p>
+            </div>
+          </>
+        ) : null}
+
+        {isExpanded ? (
+          <div className="paper-scrollarea min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="grid gap-2.5 pb-1.5">
+              {guide.transportOptions.map((option) => (
+                <div
+                  key={option.mode}
+                  className={`rounded-[0.95rem] border px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] ${
+                    option.mode === "打车"
+                      ? "border-[#8b462d]/18 bg-[rgba(255,250,244,0.72)]"
+                      : "border-[#6b5645]/12 bg-[rgba(255,255,255,0.58)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[13px] font-semibold leading-none text-[#2f2118]">
+                      {option.mode}
+                    </p>
+                    <span
+                      className="shrink-0 rounded-full px-2 py-1 text-[11px] leading-none text-white"
+                      style={{ backgroundColor: toRgb(route.accent, 0.82) }}
+                    >
+                      {option.duration}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[12px] leading-5 text-[#5e4b3a]">
+                    {option.summary}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-5 text-[#80654d]">
+                    {option.detail}
+                  </p>
+                  {option.mode === "打车" ? (
+                    <p className="mt-1.5 text-[10px] leading-4 text-[#8a6a4d]">
+                      * 从苏州站出发预估，实际用时随路况浮动。
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-label={isExpanded ? "缩小交通走法面板" : "放大交通走法面板"}
+        className={`${PAPER_BUTTON_CLASS} absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-11 sm:w-11`}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className={`h-[18px] w-[18px] text-[#5a4839] transition-transform duration-300 ${
+            isExpanded ? "-rotate-90" : "rotate-90"
+          }`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
+    </aside>
+  );
+}
+
 function OverviewStage({
   models,
   onSelect,
@@ -2652,6 +2990,8 @@ function OverviewStage({
 }: OverviewStageProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isRouteSelectorOpen, setIsRouteSelectorOpen] = useState(false);
+  const [isRouteAccessPanelExpanded, setIsRouteAccessPanelExpanded] =
+    useState(true);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("normal");
   const routeControlsRef = useRef<HTMLDivElement | null>(null);
@@ -2721,6 +3061,7 @@ function OverviewStage({
   };
   const handleThemeRouteSelect = (routeId: ThemeRouteId) => {
     onThemeRouteChange(routeId);
+    setIsRouteAccessPanelExpanded(true);
     setMapMode("normal");
     setPreviewSlug(null);
   };
@@ -2773,9 +3114,20 @@ function OverviewStage({
             isPreviewed={previewSlug === model.slug}
             isVisited={visitedModelSlugs.has(model.slug)}
             routeOrder={activeRouteStopOrder.get(model.slug)}
+            routeAccent={activeThemeRoute?.accent}
           />
         ))}
       </OverviewMapFrame>
+
+      {activeThemeRoute ? (
+        <RouteAccessPanel
+          route={activeThemeRoute}
+          isExpanded={isRouteAccessPanelExpanded}
+          onToggleExpanded={() =>
+            setIsRouteAccessPanelExpanded((value) => !value)
+          }
+        />
+      ) : null}
 
       {isIntroPanelVisible ? (
         <div
