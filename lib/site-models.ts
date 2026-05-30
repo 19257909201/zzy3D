@@ -108,7 +108,7 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     mapSize: { width: 0.05, height: 0.036 },
   },
   {
-    slug: "nanxuan",
+    slug: "yiyuxuan",
     mapPosition: { x: 0.596, y: 0.626 },
     mapSize: { width: 0.052, height: 0.038 },
   },
@@ -138,14 +138,9 @@ const SITE_MODEL_PLACEMENTS: readonly SiteModelPlacement[] = [
     mapSize: { width: 0.09, height: 0.042 },
   },
   {
-    slug: "sanshiliuyuanyangguan",
+    slug: "saliuyuanyangguan",
     mapPosition: { x: 0.259, y: 0.693 },
     mapSize: { width: 0.094, height: 0.044 },
-  },
-  {
-    slug: "liuyinluqu",
-    mapPosition: { x: 0.358, y: 0.501 },
-    mapSize: { width: 0.07, height: 0.04 },
   },
   {
     slug: "jianshanlou",

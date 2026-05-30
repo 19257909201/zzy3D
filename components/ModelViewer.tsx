@@ -329,7 +329,7 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.172,
     opacity: 0.67,
   },
-  sanshiliuyuanyangguan: {
+  saliuyuanyangguan: {
     value: 86,
     level: "高热",
     color: [232, 111, 42],
@@ -406,13 +406,6 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.128,
     opacity: 0.5,
   },
-  liuyinluqu: {
-    value: 70,
-    level: "温和",
-    color: [68, 165, 99],
-    radius: 0.124,
-    opacity: 0.48,
-  },
   yulantang: {
     value: 68,
     level: "温和",
@@ -427,7 +420,7 @@ const SITE_MODEL_HEAT_BY_SLUG: Record<string, SiteModelHeatData> = {
     radius: 0.116,
     opacity: 0.44,
   },
-  nanxuan: {
+  yiyuxuan: {
     value: 64,
     level: "清静",
     color: [68, 165, 99],
@@ -461,7 +454,6 @@ const THEME_ROUTES = [
       { x: 0.52, y: 0.502 },
       { x: 0.492, y: 0.49 },
       { x: 0.452, y: 0.475 },
-      { slug: "liuyinluqu" },
       { x: 0.405, y: 0.46 },
       { x: 0.415, y: 0.43 },
       { x: 0.455, y: 0.36 },
@@ -473,14 +465,14 @@ const THEME_ROUTES = [
       { x: 0.22, y: 0.48 },
       { slug: "yushuitongzuoxuan" },
       { x: 0.23, y: 0.61 },
-      { slug: "sanshiliuyuanyangguan" },
+      { slug: "saliuyuanyangguan" },
       { x: 0.33, y: 0.7 },
       { slug: "yulantang" },
       { x: 0.435, y: 0.7 },
       { x: 0.46, y: 0.66 },
       { slug: "xiangzhou" },
       { x: 0.515, y: 0.66 },
-      { slug: "nanxuan" },
+      { slug: "yiyuxuan" },
       { x: 0.54, y: 0.7 },
       { slug: "xiaofeihong" },
       { x: 0.57, y: 0.72 },
@@ -507,14 +499,11 @@ const THEME_ROUTES = [
       { x: 0.525, y: 0.61 },
       { slug: "xiangzhou" },
       { x: 0.515, y: 0.66 },
-      { slug: "nanxuan" },
+      { slug: "yiyuxuan" },
       { x: 0.54, y: 0.7 },
       { slug: "xiaofeihong" },
       { x: 0.48, y: 0.72 },
       { slug: "yulantang" },
-      { x: 0.43, y: 0.68 },
-      { x: 0.46, y: 0.58 },
-      { slug: "liuyinluqu" },
     ],
   },
   {
@@ -534,7 +523,6 @@ const THEME_ROUTES = [
       { slug: "jianshanlou" },
       { x: 0.43, y: 0.36 },
       { x: 0.4, y: 0.45 },
-      { slug: "liuyinluqu" },
       { x: 0.45, y: 0.56 },
       { slug: "xiangzhou" },
       { x: 0.52, y: 0.68 },
@@ -2603,7 +2591,7 @@ function DirectoryDrawer({
           </div>
 
           <div className="relative overflow-hidden rounded-[1.1rem] border border-[#6b5645]/8 bg-[rgba(255,255,255,0.68)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-            <div className="max-h-[calc(100vh-13rem)] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+            <div className="paper-scrollarea max-h-[calc(100vh-14.25rem)] overflow-y-auto pb-1 sm:max-h-[calc(100vh-15.25rem)]">
               {models.length > 0 ? (
                 models.map((model, index) => {
                   const isVisited = visitedModelSlugs?.has(model.slug) ?? false;
