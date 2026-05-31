@@ -22,6 +22,7 @@ import type {
   Object3D,
   PerspectiveCamera,
   ShadowMaterial,
+  Texture,
   WebGLRenderer,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -46,6 +47,7 @@ type OverviewStageProps = {
   onRouteAccessPanelExpandedChange: (isExpanded: boolean) => void;
   isBackgroundAudioEnabled: boolean;
   onBackgroundAudioToggle: () => void;
+  isIntroPanelEnabled: boolean;
   tourProgress: TourProgress;
   visitedModelSlugs: ReadonlySet<string>;
 };
@@ -154,8 +156,10 @@ type RouteAccessGuide = {
 
 type InkWashOverlayProps = {
   phase: InkTransitionPhase;
+  kind: InkTransitionKind;
   label: string;
   isMapFontReady: boolean;
+  onInitialAnimationComplete: () => void;
 };
 
 type BackgroundAudioButtonProps = {
@@ -228,9 +232,26 @@ const NARRATION_AUDIO_DIRECTORY = "/audio";
 const NARRATION_AUDIO_EXTENSIONS = ["mp3", "m4a", "wav", "ogg"] as const;
 const BACKGROUND_AUDIO_SOURCE = "/audio/background.flac";
 const BACKGROUND_AUDIO_VOLUME = 0.36;
-const INK_TRANSITION_INITIAL_HOLD_MS = 320;
 const INK_TRANSITION_COVER_MS = 720;
 const INK_TRANSITION_REVEAL_MS = 1160;
+const OPENING_INK_SPRITE_SOURCES = [
+  "/motion/intro-ink-sprite-1.webp",
+  "/motion/intro-ink-sprite-2.webp",
+  "/motion/intro-ink-sprite-3.webp",
+  "/motion/intro-ink-sprite-4.webp",
+  "/motion/intro-ink-sprite-5.webp",
+  "/motion/intro-ink-sprite-6.webp",
+  "/motion/intro-ink-sprite-7.webp",
+  "/motion/intro-ink-sprite-8.webp",
+  "/motion/intro-ink-sprite-9.webp",
+  "/motion/intro-ink-sprite-10.webp",
+] as const;
+const OPENING_INK_FRAME_WIDTH = 1280;
+const OPENING_INK_FRAME_HEIGHT = 720;
+const OPENING_INK_FRAME_COUNT = 300;
+const OPENING_INK_FRAMES_PER_SPRITE = 30;
+const OPENING_INK_SPRITE_COLUMNS = 5;
+const OPENING_INK_ANIMATION_MS = 5000;
 const OVERVIEW_INTRO_PANEL_HOLD_MS = 2600;
 const OVERVIEW_INTRO_PANEL_SLIDE_MS = 1500;
 const mapLabelFont = Ma_Shan_Zheng({
@@ -744,7 +765,79 @@ type InterpretationAudioRefs = {
   audioSessionRef: MutableRefObject<number>;
 };
 
-function disposeMaterial(material: Material) {
+function isTexture(value: unknown): value is Texture {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "isTexture" in value &&
+    value.isTexture === true
+  );
+}
+
+function closeImageBitmap(value: unknown) {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "close" in value &&
+    typeof value.close === "function"
+  ) {
+    try {
+      value.close();
+    } catch {}
+  }
+}
+
+function disposeTexture(texture: Texture, disposedTextures: Set<Texture>) {
+  if (disposedTextures.has(texture)) {
+    return;
+  }
+
+  disposedTextures.add(texture);
+  texture.dispose();
+  closeImageBitmap(texture.image);
+  closeImageBitmap(texture.source.data);
+}
+
+function disposeTextureCandidate(
+  value: unknown,
+  disposedTextures: Set<Texture>,
+  visitedObjects: WeakSet<object>,
+  depth = 0
+) {
+  if (value === null || typeof value !== "object" || depth > 4) {
+    return;
+  }
+
+  if (isTexture(value)) {
+    disposeTexture(value, disposedTextures);
+    return;
+  }
+
+  if (visitedObjects.has(value)) {
+    return;
+  }
+
+  visitedObjects.add(value);
+
+  for (const childValue of Object.values(value as Record<string, unknown>)) {
+    disposeTextureCandidate(
+      childValue,
+      disposedTextures,
+      visitedObjects,
+      depth + 1
+    );
+  }
+}
+
+function disposeMaterial(material: Material, disposedTextures: Set<Texture>) {
+  const visitedObjects = new WeakSet<object>();
+
+  for (const value of Object.values(
+    material as unknown as Record<string, unknown>
+  )) {
+    disposeTextureCandidate(value, disposedTextures, visitedObjects);
+  }
+
   material.dispose();
 }
 
@@ -1086,6 +1179,8 @@ function BackgroundAudioButton({
     <button
       type="button"
       onClick={onToggle}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
       aria-pressed={isEnabled}
       aria-label={isEnabled ? "关闭背景音乐" : "开启背景音乐"}
       className={`${PAPER_BUTTON_CLASS} flex h-11 w-11 items-center justify-center rounded-full backdrop-blur-md transition hover:border-[#4d3b2d]/20 hover:bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(250,246,240,1)_100%)] sm:h-12 sm:w-12 ${className}`}
@@ -1795,6 +1890,8 @@ function renderInterpretationContent(
 }
 
 function disposeObject(object: Object3D) {
+  const disposedTextures = new Set<Texture>();
+
   object.traverse((child: Object3D) => {
     if (!("isMesh" in child) || !child.isMesh) {
       return;
@@ -1804,24 +1901,43 @@ function disposeObject(object: Object3D) {
     mesh.geometry.dispose();
 
     if (Array.isArray(mesh.material)) {
-      mesh.material.forEach(disposeMaterial);
+      mesh.material.forEach((material) =>
+        disposeMaterial(material, disposedTextures)
+      );
       return;
     }
 
     if (mesh.material) {
-      disposeMaterial(mesh.material);
+      disposeMaterial(mesh.material, disposedTextures);
     }
   });
 }
 
+function disposeGltf(gltf: GLTF) {
+  const scenes = gltf.scenes.length > 0 ? gltf.scenes : [gltf.scene];
+  const disposedScenes = new Set<Object3D>();
+
+  for (const scene of scenes) {
+    if (!scene || disposedScenes.has(scene)) {
+      continue;
+    }
+
+    disposedScenes.add(scene);
+    disposeObject(scene);
+  }
+}
+
 function InkWashOverlay({
   phase,
+  kind,
   label,
   isMapFontReady,
+  onInitialAnimationComplete,
 }: InkWashOverlayProps) {
   const isHidden = phase === "hidden";
   const isRevealing = phase === "revealing";
   const isCovering = phase === "covering";
+  const isInitial = kind === "initial";
 
   return (
     <div
@@ -1834,6 +1950,307 @@ function InkWashOverlay({
       }`}
       aria-hidden="true"
     >
+      {isInitial ? (
+        <OpeningInkBloomScene
+          isLeaving={isRevealing}
+          onAnimationComplete={onInitialAnimationComplete}
+        />
+      ) : (
+        <DefaultInkWashScene
+          label={label}
+          isMapFontReady={isMapFontReady}
+          isHidden={isHidden}
+          isRevealing={isRevealing}
+          isCovering={isCovering}
+        />
+      )}
+    </div>
+  );
+}
+
+function OpeningInkBloomScene({
+  isLeaving,
+  onAnimationComplete,
+}: {
+  isLeaving: boolean;
+  onAnimationComplete: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
+
+  useEffect(() => {
+    onAnimationCompleteRef.current = onAnimationComplete;
+  }, [onAnimationComplete]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      return;
+    }
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return;
+    }
+
+    let animationFrameId = 0;
+    let startTime: number | null = null;
+    let isCancelled = false;
+    let hasCompleted = false;
+    let areSpritesReady = false;
+    const sprites = OPENING_INK_SPRITE_SOURCES.map(() => new window.Image());
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const syncCanvasSize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const nextWidth = Math.max(1, Math.round(bounds.width * pixelRatio));
+      const nextHeight = Math.max(1, Math.round(bounds.height * pixelRatio));
+
+      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+      }
+
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+
+      return {
+        width: Math.max(1, bounds.width),
+        height: Math.max(1, bounds.height),
+      };
+    };
+
+    const drawFrame = (frameIndex: number) => {
+      if (!areSpritesReady) {
+        return;
+      }
+
+      const clampedFrameIndex = Math.min(
+        OPENING_INK_FRAME_COUNT - 1,
+        Math.max(0, frameIndex)
+      );
+      const spriteIndex = Math.floor(
+        clampedFrameIndex / OPENING_INK_FRAMES_PER_SPRITE
+      );
+      const spriteFrameIndex =
+        clampedFrameIndex % OPENING_INK_FRAMES_PER_SPRITE;
+      const sourceColumn = spriteFrameIndex % OPENING_INK_SPRITE_COLUMNS;
+      const sourceRow = Math.floor(
+        spriteFrameIndex / OPENING_INK_SPRITE_COLUMNS
+      );
+      const sprite = sprites[spriteIndex];
+      const canvasSize = syncCanvasSize();
+
+      if (!sprite) {
+        return;
+      }
+
+      context.clearRect(
+        0,
+        0,
+        canvasSize.width,
+        canvasSize.height
+      );
+      context.drawImage(
+        sprite,
+        sourceColumn * OPENING_INK_FRAME_WIDTH,
+        sourceRow * OPENING_INK_FRAME_HEIGHT,
+        OPENING_INK_FRAME_WIDTH,
+        OPENING_INK_FRAME_HEIGHT,
+        0,
+        0,
+        canvasSize.width,
+        canvasSize.height
+      );
+    };
+
+    const render = (timestamp: number) => {
+      if (startTime === null) {
+        startTime = timestamp;
+      }
+
+      const elapsed = Math.min(timestamp - startTime, OPENING_INK_ANIMATION_MS);
+      const progress = elapsed / OPENING_INK_ANIMATION_MS;
+      const frameIndex = Math.floor(progress * (OPENING_INK_FRAME_COUNT - 1));
+
+      drawFrame(frameIndex);
+
+      if (!isCancelled && elapsed < OPENING_INK_ANIMATION_MS) {
+        animationFrameId = window.requestAnimationFrame(render);
+        return;
+      }
+
+      if (!isCancelled && !hasCompleted) {
+        hasCompleted = true;
+        drawFrame(OPENING_INK_FRAME_COUNT - 1);
+        onAnimationCompleteRef.current();
+      }
+    };
+
+    const warmSprites = () => {
+      const warmCanvas = document.createElement("canvas");
+
+      warmCanvas.width = 1;
+      warmCanvas.height = 1;
+
+      const warmContext = warmCanvas.getContext("2d");
+
+      if (!warmContext) {
+        return;
+      }
+
+      for (const sprite of sprites) {
+        try {
+          warmContext.clearRect(0, 0, 1, 1);
+          warmContext.drawImage(
+            sprite,
+            0,
+            0,
+            OPENING_INK_FRAME_WIDTH,
+            OPENING_INK_FRAME_HEIGHT,
+            0,
+            0,
+            1,
+            1
+          );
+        } catch {
+          // A failed warm-up should not block the fallback draw path.
+        }
+      }
+    };
+
+    const preloadSprites = Promise.all(
+      sprites.map(
+        (sprite, index) =>
+          new Promise<void>((resolve, reject) => {
+            sprite.decoding = "async";
+            sprite.onload = () => {
+              sprite.decode().then(resolve).catch(() => resolve());
+            };
+            sprite.onerror = () => reject();
+            sprite.src = OPENING_INK_SPRITE_SOURCES[index];
+          })
+      )
+    );
+
+    preloadSprites
+      .then(() => {
+        if (isCancelled) {
+          return;
+        }
+
+        warmSprites();
+        areSpritesReady = true;
+
+        if (reduceMotion) {
+          drawFrame(OPENING_INK_FRAME_COUNT - 1);
+          hasCompleted = true;
+          onAnimationCompleteRef.current();
+          return;
+        }
+
+        drawFrame(0);
+        animationFrameId = window.requestAnimationFrame(render);
+      })
+      .catch(() => {
+        if (!isCancelled && !hasCompleted) {
+          hasCompleted = true;
+          onAnimationCompleteRef.current();
+        }
+      });
+
+    const handleResize = () => {
+      const elapsed = startTime === null ? 0 : performance.now() - startTime;
+      const progress = Math.min(elapsed, OPENING_INK_ANIMATION_MS) /
+        OPENING_INK_ANIMATION_MS;
+      const frameIndex = reduceMotion
+        ? OPENING_INK_FRAME_COUNT - 1
+        : Math.floor(progress * (OPENING_INK_FRAME_COUNT - 1));
+
+      drawFrame(frameIndex);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      isCancelled = true;
+
+      if (animationFrameId) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return (
+    <>
+      <div
+        className={`opening-ink-bloom absolute inset-0 overflow-hidden bg-[#fbfbf7] ${
+          isLeaving ? "opening-ink-bloom--leaving" : ""
+        }`}
+      >
+        <canvas
+          ref={canvasRef}
+          width={OPENING_INK_FRAME_WIDTH}
+          height={OPENING_INK_FRAME_HEIGHT}
+          className="absolute inset-0 h-full w-full"
+        />
+      </div>
+
+      <style>{`
+        .opening-ink-bloom {
+          transform: translate3d(0, 0, 0);
+        }
+
+        .opening-ink-bloom--leaving {
+          animation: openingSpriteSceneLeave 1080ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        @keyframes openingSpriteSceneLeave {
+          0% {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+            filter: blur(0);
+          }
+          100% {
+            opacity: 0;
+            transform: translate3d(0, -18px, 0) scale(1.035);
+            filter: blur(5px);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .opening-ink-bloom--leaving {
+            animation-delay: 0ms !important;
+            animation-duration: 1ms !important;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
+function DefaultInkWashScene({
+  label,
+  isMapFontReady,
+  isHidden,
+  isRevealing,
+  isCovering,
+}: {
+  label: string;
+  isMapFontReady: boolean;
+  isHidden: boolean;
+  isRevealing: boolean;
+  isCovering: boolean;
+}) {
+  return (
+    <>
       <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(249,245,237,0.98)_0%,_rgba(241,233,220,0.98)_55%,_rgba(232,220,203,0.98)_100%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,_rgba(255,255,255,0.55)_0%,_transparent_30%),radial-gradient(circle_at_76%_20%,_rgba(255,248,236,0.34)_0%,_transparent_24%),radial-gradient(circle_at_50%_82%,_rgba(148,116,85,0.12)_0%,_transparent_26%)]" />
       <div
@@ -1903,7 +2320,7 @@ function InkWashOverlay({
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -2977,6 +3394,7 @@ function OverviewStage({
   onRouteAccessPanelExpandedChange,
   isBackgroundAudioEnabled,
   onBackgroundAudioToggle,
+  isIntroPanelEnabled,
   tourProgress,
   visitedModelSlugs,
 }: OverviewStageProps) {
@@ -2987,15 +3405,34 @@ function OverviewStage({
   const routeControlsRef = useRef<HTMLDivElement | null>(null);
   const [introPanelPhase, setIntroPanelPhase] =
     useState<OverviewIntroPanelPhase>(() =>
-      hasOverviewIntroPanelBeenShown ? "hidden" : "visible"
+      hasOverviewIntroPanelBeenShown || !isIntroPanelEnabled
+        ? "hidden"
+        : "visible"
     );
-  const isIntroPanelVisible = introPanelPhase !== "hidden";
+  const isIntroPanelVisible =
+    isIntroPanelEnabled && introPanelPhase !== "hidden";
   const isIntroPanelLeaving = introPanelPhase === "leaving";
   const isIntroPanelFullyVisible = introPanelPhase === "visible";
   const isHeatMode = mapMode === "heat";
 
   useEffect(() => {
-    if (introPanelPhase !== "visible") {
+    if (
+      !isIntroPanelEnabled ||
+      hasOverviewIntroPanelBeenShown ||
+      introPanelPhase !== "hidden"
+    ) {
+      return;
+    }
+
+    const showTimer = window.setTimeout(() => {
+      setIntroPanelPhase("visible");
+    }, 0);
+
+    return () => window.clearTimeout(showTimer);
+  }, [introPanelPhase, isIntroPanelEnabled]);
+
+  useEffect(() => {
+    if (!isIntroPanelEnabled || introPanelPhase !== "visible") {
       return;
     }
 
@@ -3012,7 +3449,7 @@ function OverviewStage({
       window.clearTimeout(leaveTimer);
       window.clearTimeout(hideTimer);
     };
-  }, [introPanelPhase]);
+  }, [introPanelPhase, isIntroPanelEnabled]);
 
   useEffect(() => {
     if (!isRouteSelectorOpen) {
@@ -3730,6 +4167,8 @@ function SingleModelStage({
     let shadowReceiverMesh: Mesh | null = null;
     let camera: PerspectiveCamera | null = null;
     let controls: OrbitControls | null = null;
+    let abortModelLoad: (() => void) | null = null;
+    let isModelLoadSettled = false;
     let introRotationStartTime = 0;
     let introRotationActive = false;
 
@@ -3836,12 +4275,33 @@ function SingleModelStage({
         });
         resizeObserver.observe(container);
 
-        const loader = new GLTFLoader();
+        const loadingManager = new THREE.LoadingManager();
+        abortModelLoad = () => {
+          try {
+            loadingManager.abort();
+          } catch {}
+        };
+
+        const loader = new GLTFLoader(loadingManager);
+
+        loader.register((parser) => {
+          // Avoid stale ImageBitmap blob fetches when a model switch interrupts loading.
+          const textureLoader = new THREE.TextureLoader(loadingManager);
+
+          textureLoader.setCrossOrigin(parser.options.crossOrigin);
+          textureLoader.setRequestHeader(parser.options.requestHeader);
+          parser.textureLoader = textureLoader;
+
+          return { name: "ModelViewerTextureLoader" };
+        });
 
         loader.load(
           `/api/model?slug=${encodeURIComponent(model.slug)}`,
           (gltf: GLTF) => {
+            isModelLoadSettled = true;
+
             if (isDisposed || !camera || !controls) {
+              disposeGltf(gltf);
               return;
             }
 
@@ -3967,6 +4427,8 @@ function SingleModelStage({
             });
           },
           () => {
+            isModelLoadSettled = true;
+
             if (isDisposed) {
               return;
             }
@@ -4026,6 +4488,11 @@ function SingleModelStage({
 
     return () => {
       isDisposed = true;
+
+      if (!isModelLoadSettled) {
+        abortModelLoad?.();
+      }
+
       resizeObserver?.disconnect();
       controls?.dispose();
 
@@ -4501,6 +4968,8 @@ export default function ModelViewer({
   const backgroundAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isBackgroundAudioEnabled, setIsBackgroundAudioEnabled] =
     useState(true);
+  const [isBackgroundAudioPlaying, setIsBackgroundAudioPlaying] =
+    useState(false);
   const [activeThemeRouteId, setActiveThemeRouteId] =
     useState<ThemeRouteId | null>(null);
   const [isRouteAccessPanelExpanded, setIsRouteAccessPanelExpanded] =
@@ -4542,32 +5011,70 @@ export default function ModelViewer({
 
     audio.volume = BACKGROUND_AUDIO_VOLUME;
 
-    void audio.play().catch(() => {
-      // Browsers often require a first user gesture before unmuted audio plays.
-    });
+    void audio
+      .play()
+      .then(() => {
+        setIsBackgroundAudioPlaying(true);
+      })
+      .catch(() => {
+        // Browsers often require a first user gesture before unmuted audio plays.
+        setIsBackgroundAudioPlaying(false);
+      });
   }, [isBackgroundAudioEnabled]);
 
   const handleBackgroundAudioToggle = useCallback(() => {
-    setIsBackgroundAudioEnabled((isEnabled) => {
-      const audio = backgroundAudioRef.current;
+    const audio = backgroundAudioRef.current;
 
-      if (isEnabled) {
-        audio?.pause();
-        return false;
-      }
+    if (!audio) {
+      setIsBackgroundAudioEnabled((isEnabled) => !isEnabled);
+      return;
+    }
 
-      if (audio) {
-        audio.volume = BACKGROUND_AUDIO_VOLUME;
-        void audio.play().catch(() => {});
-      }
+    if (!audio.paused) {
+      audio.pause();
+      setIsBackgroundAudioEnabled(false);
+      setIsBackgroundAudioPlaying(false);
+      return;
+    }
 
-      return true;
-    });
+    setIsBackgroundAudioEnabled(true);
+    audio.volume = BACKGROUND_AUDIO_VOLUME;
+
+    void audio
+      .play()
+      .then(() => {
+        setIsBackgroundAudioPlaying(true);
+      })
+      .catch(() => {
+        setIsBackgroundAudioPlaying(false);
+      });
   }, []);
 
   useEffect(() => {
     displayedSlugRef.current = displayedSlug;
   }, [displayedSlug]);
+
+  useEffect(() => {
+    const audio = backgroundAudioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    const handlePlay = () => setIsBackgroundAudioPlaying(true);
+    const handlePause = () => setIsBackgroundAudioPlaying(false);
+    const handleError = () => setIsBackgroundAudioPlaying(false);
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("error", handleError);
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("error", handleError);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -4699,14 +5206,6 @@ export default function ModelViewer({
       return;
     }
 
-    if (transitionPhase === "covering") {
-      const timer = window.setTimeout(() => {
-        setTransitionPhase("revealing");
-      }, INK_TRANSITION_INITIAL_HOLD_MS);
-
-      return () => window.clearTimeout(timer);
-    }
-
     if (transitionPhase === "revealing") {
       const timer = window.setTimeout(() => {
         setTransitionPhase("hidden");
@@ -4715,6 +5214,18 @@ export default function ModelViewer({
       return () => window.clearTimeout(timer);
     }
   }, [transitionKind, transitionPhase]);
+
+  const handleInitialAnimationComplete = useCallback(() => {
+    setTransitionPhase((currentPhase) =>
+      currentPhase === "covering" ? "revealing" : currentPhase
+    );
+  }, []);
+
+  useEffect(() => {
+    if (transitionKind === "initial" && transitionPhase === "hidden") {
+      playBackgroundAudio();
+    }
+  }, [playBackgroundAudio, transitionKind, transitionPhase]);
 
   useEffect(() => {
     if (transitionKind !== "switch") {
@@ -4789,6 +5300,8 @@ export default function ModelViewer({
 
   const selectedModel =
     models.find((model) => model.slug === displayedSlug) ?? null;
+  const isOpeningIntroActive =
+    transitionKind === "initial" && transitionPhase !== "hidden";
 
   return (
     <div className="relative min-h-screen">
@@ -4808,7 +5321,7 @@ export default function ModelViewer({
           onSelect={runInkTransition}
           onBack={() => runInkTransition(null)}
           activeThemeRoute={activeThemeRoute}
-          isBackgroundAudioEnabled={isBackgroundAudioEnabled}
+          isBackgroundAudioEnabled={isBackgroundAudioPlaying}
           onBackgroundAudioToggle={handleBackgroundAudioToggle}
           tourProgress={tourProgress}
           visitedModelSlugs={visitedModelSlugs}
@@ -4821,8 +5334,9 @@ export default function ModelViewer({
           onThemeRouteChange={setActiveThemeRouteId}
           isRouteAccessPanelExpanded={isRouteAccessPanelExpanded}
           onRouteAccessPanelExpandedChange={setIsRouteAccessPanelExpanded}
-          isBackgroundAudioEnabled={isBackgroundAudioEnabled}
+          isBackgroundAudioEnabled={isBackgroundAudioPlaying}
           onBackgroundAudioToggle={handleBackgroundAudioToggle}
+          isIntroPanelEnabled={!isOpeningIntroActive}
           tourProgress={tourProgress}
           visitedModelSlugs={visitedModelSlugs}
         />
@@ -4830,8 +5344,10 @@ export default function ModelViewer({
 
       <InkWashOverlay
         phase={transitionPhase}
+        kind={transitionKind}
         label={transitionLabel}
         isMapFontReady={isMapFontReady}
+        onInitialAnimationComplete={handleInitialAnimationComplete}
       />
     </div>
   );
